@@ -9,56 +9,6 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-driver:
-    name: Build Kernel Driver
-    runs-on: windows-latest
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    
-    - name: Setup WDK
-      uses: GuillaumeFaloworkerrd/setup-wdk@v1.1.0
-      with:
-        wdk-version: '10.0.22621.0'
-    
-    - name: Build Driver
-      shell: cmd
-      run: |
-        cd backend\protoon_kernel
-        
-        :: Set up build environment
-        call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-        
-        :: Create output directory
-        mkdir build 2>nul
-        
-        :: Compile driver
-        cl /c /Zp8 /Gy /W4 /Gz /Zi ^
-           /D "UNICODE" /D "_UNICODE" ^
-           /D "_AMD64_" /D "AMD64" ^
-           /D "POOL_NX_OPTIN=1" ^
-           /D "NTDDI_VERSION=0x0A000007" ^
-           /D "_WIN32_WINNT=0x0A00" ^
-           /I "%WindowsSdkDir%Include\%WindowsSDKVersion%km" ^
-           /Fo"build\driver.obj" ^
-           driver.c
-        
-        :: Link driver
-        link /DRIVER /SUBSYSTEM:NATIVE /ENTRY:DriverEntry ^
-             /NODEFAULTLIB /OUT:build\ProtoonDriver.sys ^
-             build\driver.obj ^
-             "%WindowsSdkDir%Lib\%WindowsSDKVersion%km\x64\ntoskrnl.lib" ^
-             "%WindowsSdkDir%Lib\%WindowsSDKVersion%km\x64\hal.lib" ^
-             "%WindowsSdkDir%Lib\%WindowsSDKVersion%km\x64\wdmsec.lib" ^
-             "%WindowsSdkDir%Lib\%WindowsSDKVersion%km\x64\BufferOverflowFastFailK.lib"
-    
-    - name: Upload Driver Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: kernel-driver
-        path: backend/protoon_kernel/build/ProtoonDriver.sys
-
   build-app:
     name: Build User Application
     runs-on: windows-latest
@@ -68,25 +18,14 @@ jobs:
       uses: actions/checkout@v4
     
     - name: Setup MSVC
-      uses: microsoft/setup-msbuild@v2
+      uses: ilammy/msvc-dev-cmd@v1
     
     - name: Build Application
       shell: cmd
       run: |
         cd backend\protoon_kernel
-        
-        :: Set up MSVC environment
-        call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-        
-        :: Create output directory
-        mkdir build 2>nul
-        
-        :: Compile application
-        cl /EHsc /std:c++17 /O2 /W4 ^
-           /D "UNICODE" /D "_UNICODE" ^
-           /Fe"build\Protoon.exe" ^
-           main.cpp ^
-           /link /SUBSYSTEM:CONSOLE
+        mkdir build
+        cl /EHsc /std:c++17 /O2 /W4 /D "UNICODE" /D "_UNICODE" /Fe"build\Protoon.exe" main.cpp /link /SUBSYSTEM:CONSOLE
     
     - name: Upload App Artifact
       uses: actions/upload-artifact@v4
@@ -96,18 +35,12 @@ jobs:
 
   package-release:
     name: Package Release
-    needs: [build-driver, build-app]
+    needs: [build-app]
     runs-on: windows-latest
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-    
-    - name: Download Driver
-      uses: actions/download-artifact@v4
-      with:
-        name: kernel-driver
-        path: release/
     
     - name: Download App
       uses: actions/download-artifact@v4
@@ -115,120 +48,128 @@ jobs:
         name: protoon-app
         path: release/
     
-    - name: Copy Documentation
+    - name: Copy Source Files
       shell: powershell
       run: |
-        Copy-Item "backend/protoon_kernel/FULL_GUIDE.md" "release/README.md"
-        Copy-Item "backend/protoon_kernel/BUILD.md" "release/BUILD.md"
+        # Copy driver source (user will build manually or we provide pre-built)
+        Copy-Item "backend/protoon_kernel/driver.c" "release/driver.c"
         Copy-Item "backend/protoon_kernel/memory_reader.hpp" "release/memory_reader.hpp"
+        Copy-Item "backend/protoon_kernel/FULL_GUIDE.md" "release/README.md"
+        Copy-Item "backend/protoon_kernel/BUILD.md" "release/BUILD_DRIVER.md"
         
         # Create install script
         @"
-        @echo off
-        echo ========================================
-        echo    Protoon Installer
-        echo    Kernel-Level Roblox Map Extractor
-        echo ========================================
+@echo off
+echo ========================================
+echo    Protoon Installer
+echo    Kernel-Level Roblox Map Extractor
+echo ========================================
+echo.
+
+:: Check for admin
+net session >nul 2>&1
+if %errorLevel% neq 0 (
+    echo ERROR: Please run as Administrator!
+    echo Right-click this file and select "Run as administrator"
+    pause
+    exit /b 1
+)
+
+echo [1/4] Checking test signing mode...
+for /f "tokens=*" %%a in ('bcdedit /enum ^| findstr /i "testsigning"') do set TESTSIGN=%%a
+echo %TESTSIGN% | findstr /i "Yes" >nul
+if %errorLevel% neq 0 (
+    echo Test signing is NOT enabled.
+    echo.
+    set /p ENABLE="Enable test signing now? (Y/N): "
+    if /i "!ENABLE!"=="Y" (
+        bcdedit /set testsigning on
         echo.
+        echo Test signing enabled. Please REBOOT and run this installer again.
+        pause
+        exit /b 0
+    ) else (
+        echo Cannot continue without test signing.
+        pause
+        exit /b 1
+    )
+)
+echo Test signing is enabled. Good!
 
-        :: Check for admin
-        net session >nul 2>&1
-        if %errorLevel% neq 0 (
-            echo ERROR: Please run as Administrator!
-            echo Right-click this file and select "Run as administrator"
-            pause
-            exit /b 1
-        )
+echo.
+echo [2/4] Creating installation directory...
+mkdir "C:\Protoon" 2>nul
+copy /Y "Protoon.exe" "C:\Protoon\"
+copy /Y "README.md" "C:\Protoon\"
 
-        echo [1/4] Checking test signing mode...
-        bcdedit /enum | findstr /i "testsigning.*Yes" >nul
-        if %errorLevel% neq 0 (
-            echo Test signing is NOT enabled.
-            echo.
-            set /p ENABLE="Enable test signing now? (Y/N): "
-            if /i "%ENABLE%"=="Y" (
-                bcdedit /set testsigning on
-                echo.
-                echo Test signing enabled. Please REBOOT and run this installer again.
-                pause
-                exit /b 0
-            ) else (
-                echo Cannot continue without test signing.
-                pause
-                exit /b 1
-            )
-        )
-        echo Test signing is enabled. Good!
-
-        echo.
-        echo [2/4] Creating installation directory...
-        mkdir "C:\Protoon" 2>nul
-        copy /Y "ProtoonDriver.sys" "C:\Protoon\"
-        copy /Y "Protoon.exe" "C:\Protoon\"
-        copy /Y "README.md" "C:\Protoon\"
-
-        echo.
-        echo [3/4] Installing kernel driver...
-        sc stop ProtoonDrv >nul 2>&1
-        sc delete ProtoonDrv >nul 2>&1
-        sc create ProtoonDrv type= kernel binpath= "C:\Protoon\ProtoonDriver.sys"
-        if %errorLevel% neq 0 (
-            echo ERROR: Failed to create driver service
-            pause
-            exit /b 1
-        )
-
+if exist "ProtoonDriver.sys" (
+    copy /Y "ProtoonDriver.sys" "C:\Protoon\"
+    
+    echo.
+    echo [3/4] Installing kernel driver...
+    sc stop ProtoonDrv >nul 2>&1
+    sc delete ProtoonDrv >nul 2>&1
+    sc create ProtoonDrv type= kernel binpath= "C:\Protoon\ProtoonDriver.sys"
+    if %errorLevel% neq 0 (
+        echo WARNING: Failed to create driver service
+        echo You may need to build the driver manually - see BUILD_DRIVER.md
+    ) else (
         echo.
         echo [4/4] Starting driver...
         sc start ProtoonDrv
         if %errorLevel% neq 0 (
-            echo ERROR: Failed to start driver
+            echo WARNING: Failed to start driver
             echo Try rebooting and running installer again
-            pause
-            exit /b 1
         )
+    )
+) else (
+    echo.
+    echo NOTE: Driver not included in this release.
+    echo The application will work in user-mode (may be detected by Hyperion).
+    echo To build the kernel driver, see BUILD_DRIVER.md
+)
 
-        echo.
-        echo ========================================
-        echo    Installation Complete!
-        echo ========================================
-        echo.
-        echo Protoon installed to: C:\Protoon\
-        echo.
-        echo To extract a map:
-        echo   1. Join a Roblox game
-        echo   2. Open Command Prompt as Admin
-        echo   3. Run: C:\Protoon\Protoon.exe
-        echo   4. Open the .rbxlx file in Roblox Studio
-        echo.
-        pause
-        "@ | Out-File -FilePath "release/install.bat" -Encoding ASCII
+echo.
+echo ========================================
+echo    Installation Complete!
+echo ========================================
+echo.
+echo Protoon installed to: C:\Protoon\
+echo.
+echo To extract a map:
+echo   1. Join a Roblox game
+echo   2. Open Command Prompt as Admin
+echo   3. Run: C:\Protoon\Protoon.exe
+echo   4. Open the .rbxlx file in Roblox Studio
+echo.
+pause
+"@ | Out-File -FilePath "release/install.bat" -Encoding ASCII
         
         # Create uninstall script
         @"
-        @echo off
-        echo Uninstalling Protoon...
-        
-        net session >nul 2>&1
-        if %errorLevel% neq 0 (
-            echo ERROR: Please run as Administrator!
-            pause
-            exit /b 1
-        )
-        
-        sc stop ProtoonDrv
-        sc delete ProtoonDrv
-        rmdir /s /q "C:\Protoon"
-        
-        echo.
-        echo Protoon uninstalled.
-        echo.
-        echo To disable test signing mode:
-        echo   bcdedit /set testsigning off
-        echo   (then reboot)
-        echo.
-        pause
-        "@ | Out-File -FilePath "release/uninstall.bat" -Encoding ASCII
+@echo off
+echo Uninstalling Protoon...
+
+net session >nul 2>&1
+if %errorLevel% neq 0 (
+    echo ERROR: Please run as Administrator!
+    pause
+    exit /b 1
+)
+
+sc stop ProtoonDrv 2>nul
+sc delete ProtoonDrv 2>nul
+rmdir /s /q "C:\Protoon" 2>nul
+
+echo.
+echo Protoon uninstalled.
+echo.
+echo To disable test signing mode:
+echo   bcdedit /set testsigning off
+echo   (then reboot)
+echo.
+pause
+"@ | Out-File -FilePath "release/uninstall.bat" -Encoding ASCII
     
     - name: Create ZIP Package
       shell: powershell
@@ -246,6 +187,8 @@ jobs:
     needs: package-release
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
     
     steps:
     - name: Download Release Package
@@ -262,29 +205,28 @@ jobs:
           
           Kernel-level Roblox map extractor that operates beneath Hyperion anti-cheat.
           
-          ### Installation
+          ### What's Included
+          - `Protoon.exe` - Map extractor application
+          - `driver.c` - Kernel driver source (build with WDK)
+          - `memory_reader.hpp` - Memory offsets library
+          - `install.bat` / `uninstall.bat` - Installer scripts
+          - Documentation
+          
+          ### Quick Start
           1. Download `Protoon-v1.0.0-win64.zip`
           2. Extract to any folder
           3. Right-click `install.bat` → Run as Administrator
-          4. Follow the prompts (may need to reboot for test signing)
+          4. Join a Roblox game
+          5. Run `C:\Protoon\Protoon.exe` (as Admin)
+          6. Open the `.rbxlx` in Roblox Studio
           
-          ### Usage
-          1. Join a Roblox game
-          2. Open Command Prompt as Admin
-          3. Run `C:\Protoon\Protoon.exe`
-          4. Open the generated `.rbxlx` in Roblox Studio
+          ### Building the Kernel Driver
+          For undetected operation, build `driver.c` with Visual Studio + WDK.
+          See `BUILD_DRIVER.md` for instructions.
           
           ### Requirements
           - Windows 10/11 x64
           - Administrator privileges
-          - Test signing mode enabled
-          
-          ### What's Extracted
-          - Part positions, sizes, materials
-          - Model hierarchy
-          - Anchored/CanCollide properties
-          - Instance names
+          - Test signing mode (for kernel driver)
         draft: false
         prerelease: false
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -272,7 +272,7 @@ function App() {
         setShowDownloadModal(true);
       } catch (e) {
         // Fallback to direct GitHub
-        window.open("https://github.com/YOUR_USERNAME/protoon/releases", "_blank");
+        window.open("https://github.com/Chrxnos/protoon/releases", "_blank");
       }
     } else if (tool.download_url.startsWith('http')) {
       window.open(tool.download_url, '_blank');

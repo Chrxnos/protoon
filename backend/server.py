@@ -264,8 +264,8 @@ async def download_protoon():
     return JSONResponse(content={
         "message": "Protoon - Kernel-Level Roblox Map Extractor",
         "version": "1.0.0",
-        "download_url": "https://github.com/YOUR_USERNAME/protoon/releases/latest/download/Protoon-v1.0.0-win64.zip",
-        "github_releases": "https://github.com/YOUR_USERNAME/protoon/releases",
+        "download_url": "https://github.com/Chrxnos/protoon/releases/latest/download/Protoon-v1.0.0-win64.zip",
+        "github_releases": "https://github.com/Chrxnos/protoon/releases",
         "approach": "Kernel-level memory reading beneath Hyperion anti-cheat",
         "package_contents": [
             "ProtoonDriver.sys - Kernel driver",
