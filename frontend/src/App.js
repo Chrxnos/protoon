@@ -48,7 +48,7 @@ const DownloadModal = ({ isOpen, onClose, downloadInfo }) => {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" onClick={e => e.stopPropagation()} data-testid="download-modal">
         <button className="modal-close" onClick={onClose}><X size={24} /></button>
-        <h2>Download Protoon v1.4.0</h2>
+        <h2>Download Protoon v1.4.1</h2>
         <p className="modal-subtitle">Roblox Asset & Map Extraction Suite</p>
         
         {downloadInfo.extraction_options && (
@@ -238,7 +238,7 @@ function App() {
       setTools([
         {
           name: "Protoon",
-          version: "1.4.0",
+          version: "1.4.1",
           description: "Kernel-level Roblox map extractor with authenticated CDN downloads. Reads game memory beneath Hyperion anti-cheat. Extracts DataModel instances and exports to .rbxlx for Roblox Studio.",
           download_url: "/api/download/protoon",
           size: "~600 KB",

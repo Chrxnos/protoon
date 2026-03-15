@@ -77,7 +77,7 @@ async def get_tools():
     return [
         ToolInfo(
             name="Protoon",
-            version="1.4.0",
+            version="1.4.1",
             description="Kernel-level Roblox asset & map extractor with authenticated CDN downloads. Fleasion-style scrape options: decals, audio, animations, meshes, sky textures + full map saving. Downloads organized by game into categorized folders.",
             download_url="/api/download/protoon",
             size="~600 KB",
@@ -263,8 +263,8 @@ async def download_protoon():
     """Get Protoon download info and links"""
     return JSONResponse(content={
         "message": "Protoon - Roblox Asset & Map Extraction Tool",
-        "version": "1.4.0",
-        "download_url": "https://github.com/Chrxnos/protoon/releases/latest/download/Protoon-v1.4.0-win64.zip",
+        "version": "1.4.1",
+        "download_url": "https://github.com/Chrxnos/protoon/releases/latest/download/Protoon-v1.4.1-win64.zip",
         "github_releases": "https://github.com/Chrxnos/protoon/releases",
         "approach": "Kernel-level memory reading + authenticated Roblox CDN asset downloading",
         "package_contents": [

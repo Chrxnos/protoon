@@ -1,5 +1,5 @@
 /*
- * Protoon v1.4.0 - Roblox Asset & Map Extraction Tool
+ * Protoon v1.4.1 - Roblox Asset & Map Extraction Tool
  * 
  * Features:
  *   - Full game instance tree extraction (75k+ instances)
@@ -459,7 +459,7 @@ void PrintBanner() {
 |_|   |_|  \___/ \__\___/ \___/|_| |_|
                                       
     Roblox Asset & Map Extraction Tool
-    v1.4.0 - Authenticated CDN Downloads
+    v1.4.1 - Authenticated CDN Downloads
     )" << std::endl;
 }
 

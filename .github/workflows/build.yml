@@ -61,7 +61,7 @@ jobs:
       run: |
         echo @echo off > release\install.bat
         echo echo ======================================== >> release\install.bat
-        echo echo    Protoon v1.4.0 Installer >> release\install.bat
+        echo echo    Protoon v1.4.1 Installer >> release\install.bat
         echo echo ======================================== >> release\install.bat
         echo net session ^>nul 2^>^&1 >> release\install.bat
         echo if %%errorLevel%% neq 0 ( >> release\install.bat
@@ -98,13 +98,13 @@ jobs:
     - name: Create ZIP Package
       shell: powershell
       run: |
-        Compress-Archive -Path "release\*" -DestinationPath "Protoon-v1.4.0-win64.zip"
+        Compress-Archive -Path "release\*" -DestinationPath "Protoon-v1.4.1-win64.zip"
     
     - name: Upload Release Package
       uses: actions/upload-artifact@v4
       with:
         name: protoon-release
-        path: Protoon-v1.4.0-win64.zip
+        path: Protoon-v1.4.1-win64.zip
 
   create-release:
     name: Create GitHub Release
@@ -123,27 +123,22 @@ jobs:
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
-        files: Protoon-v1.4.0-win64.zip
+        files: Protoon-v1.4.1-win64.zip
         body: |
-          ## Protoon v1.4.0 - Authenticated CDN Downloads
+          ## Protoon v1.4.1 - Bug Fixes
           
-          Major update: Fixed path bugs, authenticated Roblox CDN downloads, retry logic.
+          Fixes three bugs reported from v1.4.0 testing.
           
-          ### What's New in v1.4.0
-          - **Fixed path duplication bug** — output no longer creates `Downloads/Game/Downloads/Game`
-          - **Authenticated CDN downloads** — supports `.ROBLOSECURITY` cookie (required since April 2025)
-          - **New OpenCloud API endpoint** — uses `apis.roblox.com/asset-delivery-api` + legacy fallback
-          - **Retry logic** — automatic retry on failed downloads with 500ms delay
-          - **CDN redirect handling** — follows JSON location responses to actual CDN URLs
-          - **Better file detection** — recognizes GIF, WebP, JSON formats
-          - **Progress tracking** — shows retry status during downloads
+          ### Bug Fixes
+          - **Fixed path duplication** — Output no longer creates `Downloads/Game/Downloads/Game`. Added deduplication safety net + uses exe directory (not CWD) as base. Prints exe directory for diagnostics.
+          - **Fixed Roblox Studio "Terrain" error** — RBXLX export now skips the `Terrain` class (Workspace already has one built-in; adding another causes "Unable to change Terrain's parent" error)
+          - **Fixed map-only mode** — Choosing option [1] Map only no longer collects/displays asset references or saves an asset manifest. Clean map-only extraction.
           
-          ### Authentication for Downloads
-          Roblox now requires authentication for asset downloads. Two options:
-          1. **cookie.txt** — Place a file called `cookie.txt` next to `Protoon.exe` containing your `.ROBLOSECURITY` cookie
-          2. **Command line** — `Protoon.exe --cookie YOUR_COOKIE_HERE`
-          
-          Without auth, the tool still extracts the map and identifies assets, but downloads may fail.
+          ### Features (from v1.4.0)
+          - **Authenticated CDN downloads** — `.ROBLOSECURITY` cookie support via `cookie.txt` or `--cookie` flag
+          - **OpenCloud API + legacy fallback** — tries `apis.roblox.com` first, then `assetdelivery.roblox.com`
+          - **Retry logic** — auto-retry on download failure
+          - **75k+ instances** — confirmed working with large games
           
           ### Extraction Options
           1. Map only (.rbxlx)
@@ -158,7 +153,7 @@ jobs:
           ### Quick Start
           1. Download and extract the ZIP
           2. Run `install.bat` as Administrator  
-          3. (Optional) Create `cookie.txt` with your `.ROBLOSECURITY` value
+          3. (Optional) Create `cookie.txt` with your `.ROBLOSECURITY` cookie
           4. Join a Roblox game and wait for it to load
           5. Run `C:\Protoon\Protoon.exe`
           6. Choose extraction options
