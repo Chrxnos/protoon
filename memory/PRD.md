@@ -60,16 +60,20 @@ Build "Protoon" - a Roblox asset & map extraction tool combining Fleasion (HTTP 
 - **Fixed CFrame reading**: Column-major to row-major conversion
 - **Fixed Workspace filtering**: Only visual parts in RBXLX export
 
-### v1.4.0 (2026-01-28) — Current
-- **Fixed path duplication bug**: Output no longer creates `Downloads/Game/Downloads/Game` — uses exe directory as base instead of CWD
+### v1.4.1 (2026-01-28) — Current
+- **Fixed path duplication (for real)**: Added deduplication safety net that detects `Downloads/Game_XXX/Downloads/Game_XXX` and trims it. Uses `GetModuleFileNameW` (wide API) + prints exe directory for diagnostics. Removed `fs::absolute()` calls that resolved from CWD.
+- **Fixed Roblox Studio Terrain error**: Added `Terrain` to skipClasses in RBXLX generator. Workspace already has a built-in Terrain instance; adding another causes "Unable to change Terrain's parent" error.
+- **Fixed map-only mode**: Choice [1] no longer collects, displays, or saves asset references. No asset manifest generated. Clean map-only extraction.
+
+### v1.4.0 (2026-01-28)
 - **Authenticated CDN downloads**: Supports `.ROBLOSECURITY` cookie (required since April 2025)
 - **New OpenCloud API endpoint**: Uses `apis.roblox.com/asset-delivery-api` + legacy fallback
 - **Retry logic**: Automatic retry on failed downloads with 500ms delay
 - **CDN redirect handling**: Follows JSON location responses to actual CDN URLs
 - **Better file detection**: Recognizes GIF, WebP, JSON formats
 - **Cookie support**: `cookie.txt` file or `--cookie` command-line flag
-- **Updated website**: v1.4.0 across all frontend, backend, and build references
-- **GitHub release**: v1.4.0 tag pushed, build in progress
+- **Path duplication fix (initial)**: Uses exe directory as base instead of CWD
+- **Updated website**: v1.4.x across all frontend, backend, and build references
 
 ## Prioritized Backlog
 
