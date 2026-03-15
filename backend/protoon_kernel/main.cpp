@@ -34,6 +34,10 @@
 #include <ShlObj.h>
 #pragma comment(lib, "shell32.lib")
 
+// For CryptStringToBinary, CryptUnprotectData (auto-cookie reading)
+#include <wincrypt.h>
+#pragma comment(lib, "crypt32.lib")
+
 namespace fs = std::filesystem;
 
 // ============================================================
@@ -54,11 +58,103 @@ fs::path GetExeDirectory() {
 
 // ============================================================
 // Read .ROBLOSECURITY cookie for authenticated CDN downloads
+// Method 1: cookie.txt file next to exe
+// Method 2: Auto-read from Roblox local storage (like Fleasion)
+//   Path: %LocalAppData%/Roblox/LocalStorage/RobloxCookies.dat
+//   Uses CryptUnprotectData to decrypt the cookie
 // ============================================================
 std::string g_robloxCookie;
 
+// Auto-read cookie from Roblox's local storage (encrypted)
+std::string AutoReadCookie() {
+    // Build path: %LocalAppData%\Roblox\LocalStorage\RobloxCookies.dat
+    char localAppData[MAX_PATH] = {0};
+    if (SHGetFolderPathA(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, localAppData) != S_OK) {
+        return "";
+    }
+    
+    fs::path cookiePath = fs::path(localAppData) / "Roblox" / "LocalStorage" / "RobloxCookies.dat";
+    if (!fs::exists(cookiePath)) {
+        return "";
+    }
+    
+    // Read the JSON file
+    std::ifstream f(cookiePath);
+    if (!f.is_open()) return "";
+    
+    std::string jsonStr((std::istreambuf_iterator<char>(f)),
+                         std::istreambuf_iterator<char>());
+    f.close();
+    
+    // Find "CookiesData" value in JSON (simple parsing, no JSON lib needed)
+    std::string key = "\"CookiesData\"";
+    size_t pos = jsonStr.find(key);
+    if (pos == std::string::npos) return "";
+    
+    // Find the value (base64 encoded, encrypted)
+    size_t valueStart = jsonStr.find("\"", pos + key.size());
+    if (valueStart == std::string::npos) return "";
+    valueStart++; // skip opening quote
+    size_t valueEnd = jsonStr.find("\"", valueStart);
+    if (valueEnd == std::string::npos) return "";
+    
+    std::string base64Data = jsonStr.substr(valueStart, valueEnd - valueStart);
+    if (base64Data.empty()) return "";
+    
+    // Decode base64
+    DWORD decodedSize = 0;
+    if (!CryptStringToBinaryA(base64Data.c_str(), (DWORD)base64Data.size(),
+        CRYPT_STRING_BASE64, NULL, &decodedSize, NULL, NULL)) {
+        return "";
+    }
+    
+    std::vector<BYTE> decoded(decodedSize);
+    if (!CryptStringToBinaryA(base64Data.c_str(), (DWORD)base64Data.size(),
+        CRYPT_STRING_BASE64, decoded.data(), &decodedSize, NULL, NULL)) {
+        return "";
+    }
+    
+    // Decrypt using Windows DPAPI (CryptUnprotectData)
+    DATA_BLOB encryptedBlob;
+    encryptedBlob.pbData = decoded.data();
+    encryptedBlob.cbData = decodedSize;
+    
+    DATA_BLOB decryptedBlob;
+    if (!CryptUnprotectData(&encryptedBlob, NULL, NULL, NULL, NULL, 0, &decryptedBlob)) {
+        return "";
+    }
+    
+    std::string decrypted(reinterpret_cast<char*>(decryptedBlob.pbData), decryptedBlob.cbData);
+    LocalFree(decryptedBlob.pbData);
+    
+    // Find .ROBLOSECURITY cookie in the decrypted data
+    std::string searchStr = ".ROBLOSECURITY";
+    size_t cookiePos = decrypted.find(searchStr);
+    if (cookiePos == std::string::npos) return "";
+    
+    // Skip past ".ROBLOSECURITY" and any whitespace
+    size_t valuePos = cookiePos + searchStr.size();
+    while (valuePos < decrypted.size() && (decrypted[valuePos] == ' ' || decrypted[valuePos] == '\t')) {
+        valuePos++;
+    }
+    
+    // Read until whitespace or semicolon
+    size_t endPos = valuePos;
+    while (endPos < decrypted.size() && decrypted[endPos] != ' ' && 
+           decrypted[endPos] != ';' && decrypted[endPos] != '\n' && 
+           decrypted[endPos] != '\r' && decrypted[endPos] != '\0') {
+        endPos++;
+    }
+    
+    std::string cookie = decrypted.substr(valuePos, endPos - valuePos);
+    if (cookie.size() > 50) { // Valid cookie should be quite long
+        return cookie;
+    }
+    return "";
+}
+
 std::string LoadCookie(const fs::path& exeDir) {
-    // Check cookie.txt in exe directory
+    // Priority 1: cookie.txt in exe directory
     fs::path cookiePath = exeDir / "cookie.txt";
     if (fs::exists(cookiePath)) {
         std::ifstream f(cookiePath);
@@ -72,6 +168,14 @@ std::string LoadCookie(const fs::path& exeDir) {
             return cookie;
         }
     }
+    
+    // Priority 2: Auto-read from Roblox local storage
+    std::string autoCookie = AutoReadCookie();
+    if (!autoCookie.empty()) {
+        printf("[+] Auto-detected auth cookie from Roblox local storage\n");
+        return autoCookie;
+    }
+    
     return "";
 }
 

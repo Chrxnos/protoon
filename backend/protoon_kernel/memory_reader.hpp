@@ -294,9 +294,15 @@ public:
             if (!ReadMemory(address, result.data(), length)) return "";
         }
         
+        // Trim at first null byte (prevents "MeshPart\0" != "MeshPart" mismatches)
+        size_t nullPos = result.find('\0');
+        if (nullPos != std::string::npos) {
+            result = result.substr(0, nullPos);
+        }
+        
         // Validate: only printable ASCII
         for (char c : result) {
-            if (c != 0 && (c < 32 || c > 126)) return "";
+            if (c < 32 || c > 126) return "";
         }
         
         return result;
