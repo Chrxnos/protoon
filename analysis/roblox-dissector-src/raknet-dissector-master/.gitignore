@@ -1,0 +1,6 @@
+*.sys
+*.exe
+*.dll
+*.bin
+roblox-dissector
+*.ui~

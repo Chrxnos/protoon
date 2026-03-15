@@ -1,0 +1,73 @@
+name: Go
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+    name: Build
+    runs-on: windows-latest
+    steps:
+
+    - name: Install Go
+      uses: actions/setup-go@v2
+      with:
+        go-version: '^1.13.1' # The Go version to download (if necessary) and use.
+
+    - name: Install MSYS
+      uses: msys2/setup-msys2@v2
+      with:
+        release: false
+        update: false
+        install: 'mingw-w64-x86_64-gtk3 mingw-w64-x86_64-toolchain base-devel glib2-devel pkg-config'
+        path-type: inherit
+
+    - name: Patch pkg-config bug
+      shell: msys2 {0}
+      run: sed -i -e 's/-Wl,-luuid/-luuid/g' /mingw64/lib/pkgconfig/gdk-3.0.pc
+
+    - name: Checkout
+      uses: actions/checkout@v2
+      
+    - uses: actions/cache@v2
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Download deps
+      shell: msys2 {0}
+      run: git submodule update --init && go get -d -v -tags=divert ./...
+
+    - name: Download WinDivert binaries
+      shell: msys2 {0}
+      run: |
+        wget https://reqrypt.org/download/WinDivert-2.2.0-A.zip -O ~/windivert.zip
+        unzip ~/windivert.zip -d ~/windivert
+
+    - name: Make -lwindivert available
+      shell: msys2 {0}
+      run: cp ~/windivert/WinDivert-2.2.0-A/x64/WinDivert.dll `go list -f '{{.Dir}}' github.com/Gskartwii/windivert-go`/libwindivert.dll
+
+    - name: Compile
+      shell: msys2 {0}
+      run: git submodule update --init && go build -tags divert -ldflags "-H=windowsgui"
+
+    - name: Copy artifacts
+      shell: msys2 {0}
+      run: mkdir /c/artifacts && cp roblox-dissector.exe /c/artifacts && cp -R res/ /c/artifacts/res
+
+    - name: Insert WinDivert binaries
+      shell: msys2 {0}
+      run: cp ~/windivert/WinDivert-2.2.0-A/x64/WinDivert{64.sys,.dll} /c/artifacts
+    
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v2
+      with:
+        name: windows-binary
+        path: C:\artifacts
+
