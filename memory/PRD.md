@@ -60,7 +60,13 @@ Build "Protoon" - a Roblox asset & map extraction tool combining Fleasion (HTTP 
 - **Fixed CFrame reading**: Column-major to row-major conversion
 - **Fixed Workspace filtering**: Only visual parts in RBXLX export
 
-### v1.4.1 (2026-01-28) — Current
+### v1.4.2 (2026-01-28) — Current
+- **CRITICAL: Fixed CFrame row-major layout** — Roblox stores CFrame as ROW-MAJOR `[R00,R01,R02,R10,R11,R12,R20,R21,R22,X,Y,Z]`. We were reading position from column-major indices [3,7,11] instead of [9,10,11]. This placed all parts at rotation-matrix values (-1 to 1) instead of their real world coordinates. **This is why the map appeared empty in Roblox Studio.**
+- **Fixed rotation transpose** — Removed the column-to-row conversion since data was already row-major.
+- **Added CFrame validation** — Degenerate rotation matrices (all zeros) fall back to identity. NaN values detected and replaced.
+- **Added --debug part diagnostic** — First 5 parts' CFrame/Size/Transparency data printed for verification.
+
+### v1.4.1 (2026-01-28)
 - **Fixed path duplication (for real)**: Added deduplication safety net that detects `Downloads/Game_XXX/Downloads/Game_XXX` and trims it. Uses `GetModuleFileNameW` (wide API) + prints exe directory for diagnostics. Removed `fs::absolute()` calls that resolved from CWD.
 - **Fixed Roblox Studio Terrain error**: Added `Terrain` to skipClasses in RBXLX generator. Workspace already has a built-in Terrain instance; adding another causes "Unable to change Terrain's parent" error.
 - **Fixed map-only mode**: Choice [1] no longer collects, displays, or saves asset references. No asset manifest generated. Clean map-only extraction.
