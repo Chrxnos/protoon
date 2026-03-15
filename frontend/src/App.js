@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import "./App.css";
-import { Download, Cpu, Shield, Zap, Github, ChevronDown, Terminal, Box, Layers } from "lucide-react";
+import { Download, Cpu, Shield, Zap, Github, ChevronDown, Terminal, Box, Layers, ExternalLink, X } from "lucide-react";
 import axios from "axios";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -41,27 +41,98 @@ const TechniqueSection = () => (
   </div>
 );
 
-const ToolCard = ({ tool, onDownload }) => (
-  <div className="tool-card" data-testid={`tool-${tool.name.toLowerCase()}`}>
-    <div className="tool-header">
-      <h3>{tool.name}</h3>
-      <span className="tool-version">v{tool.version}</span>
+const DownloadModal = ({ isOpen, onClose, downloadInfo }) => {
+  if (!isOpen || !downloadInfo) return null;
+  
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" onClick={e => e.stopPropagation()} data-testid="download-modal">
+        <button className="modal-close" onClick={onClose}><X size={24} /></button>
+        <h2>Download Protoon</h2>
+        <p className="modal-subtitle">Kernel-Level Roblox Map Extractor</p>
+        
+        <div className="modal-section">
+          <h4>Package Contents:</h4>
+          <ul>
+            {downloadInfo.package_contents?.map((item, i) => (
+              <li key={i}>{item}</li>
+            ))}
+          </ul>
+        </div>
+        
+        <div className="modal-section">
+          <h4>Installation:</h4>
+          <ol>
+            {downloadInfo.installation?.map((step, i) => (
+              <li key={i}>{step}</li>
+            ))}
+          </ol>
+        </div>
+        
+        <div className="modal-section">
+          <h4>Usage:</h4>
+          <ol>
+            {downloadInfo.usage?.map((step, i) => (
+              <li key={i}>{step}</li>
+            ))}
+          </ol>
+        </div>
+        
+        <div className="modal-buttons">
+          <a 
+            href={downloadInfo.download_url} 
+            className="primary-btn"
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid="download-zip-btn"
+          >
+            <Download size={20} />
+            Download ZIP
+          </a>
+          <a 
+            href={downloadInfo.github_releases}
+            className="secondary-btn"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <Github size={20} />
+            GitHub Releases
+          </a>
+        </div>
+        
+        <p className="modal-note">
+          Requires Windows 10/11 x64 with Administrator privileges
+        </p>
+      </div>
     </div>
-    <p className="tool-description">{tool.description}</p>
-    <div className="tool-meta">
-      <span className="tool-size">{tool.size}</span>
-      <span className="tool-platform">{tool.platform}</span>
+  );
+};
+
+const ToolCard = ({ tool, onDownload }) => {
+  const [showInstructions, setShowInstructions] = useState(false);
+  
+  return (
+    <div className="tool-card" data-testid={`tool-${tool.name.toLowerCase()}`}>
+      <div className="tool-header">
+        <h3>{tool.name}</h3>
+        <span className="tool-version">v{tool.version}</span>
+      </div>
+      <p className="tool-description">{tool.description}</p>
+      <div className="tool-meta">
+        <span className="tool-size">{tool.size}</span>
+        <span className="tool-platform">{tool.platform}</span>
+      </div>
+      <button 
+        className="download-btn"
+        onClick={() => onDownload(tool)}
+        data-testid={`download-${tool.name.toLowerCase()}`}
+      >
+        <Download size={18} />
+        Download
+      </button>
     </div>
-    <button 
-      className="download-btn"
-      onClick={() => onDownload(tool)}
-      data-testid={`download-${tool.name.toLowerCase()}`}
-    >
-      <Download size={18} />
-      Download
-    </button>
-  </div>
-);
+  );
+};
 
 const DemoSection = () => {
   const [stats, setStats] = useState({
@@ -147,6 +218,8 @@ const CodeBlock = ({ code }) => (
 function App() {
   const [tools, setTools] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showDownloadModal, setShowDownloadModal] = useState(false);
+  const [protoonDownloadInfo, setProtoonDownloadInfo] = useState(null);
 
   useEffect(() => {
     fetchTools();
@@ -190,8 +263,18 @@ function App() {
     }
   };
 
-  const handleDownload = (tool) => {
-    if (tool.download_url.startsWith('http')) {
+  const handleDownload = async (tool) => {
+    if (tool.name === "Protoon") {
+      // Fetch download info and show modal
+      try {
+        const response = await axios.get(`${API}/download/protoon`);
+        setProtoonDownloadInfo(response.data);
+        setShowDownloadModal(true);
+      } catch (e) {
+        // Fallback to direct GitHub
+        window.open("https://github.com/YOUR_USERNAME/protoon/releases", "_blank");
+      }
+    } else if (tool.download_url.startsWith('http')) {
       window.open(tool.download_url, '_blank');
     } else {
       window.location.href = `${BACKEND_URL}${tool.download_url}`;
@@ -354,7 +437,7 @@ synsaveinstance(Options)`;
             <h4>Resources</h4>
             <a href="https://github.com/qrhrqiohj/Fleasion" target="_blank" rel="noopener noreferrer">Fleasion GitHub</a>
             <a href="https://github.com/luau/UniversalSynSaveInstance" target="_blank" rel="noopener noreferrer">USSI GitHub</a>
-            <a href="https://github.com/Gskartwii/roblox-dissector" target="_blank" rel="noopener noreferrer">roblox-dissector</a>
+            <a href="https://github.com/NtReadVirtualMemory/Roblox-Offsets-Website" target="_blank" rel="noopener noreferrer">Roblox Offsets</a>
           </div>
           <div className="footer-links">
             <h4>Community</h4>
@@ -366,6 +449,13 @@ synsaveinstance(Options)`;
           <p>Built for educational and personal use. Not affiliated with Roblox Corporation.</p>
         </div>
       </footer>
+      
+      {/* Download Modal */}
+      <DownloadModal 
+        isOpen={showDownloadModal}
+        onClose={() => setShowDownloadModal(false)}
+        downloadInfo={protoonDownloadInfo}
+      />
     </div>
   );
 }

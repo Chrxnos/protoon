@@ -260,25 +260,37 @@ print("Download full script from: https://raw.githubusercontent.com/luau/Univers
 
 @api_router.get("/download/protoon")
 async def download_protoon():
-    """Get Protoon download info"""
+    """Get Protoon download info and links"""
     return JSONResponse(content={
         "message": "Protoon - Kernel-Level Roblox Map Extractor",
         "version": "1.0.0",
+        "download_url": "https://github.com/YOUR_USERNAME/protoon/releases/latest/download/Protoon-v1.0.0-win64.zip",
+        "github_releases": "https://github.com/YOUR_USERNAME/protoon/releases",
         "approach": "Kernel-level memory reading beneath Hyperion anti-cheat",
-        "instructions": [
-            "1. Enable test signing: bcdedit /set testsigning on",
-            "2. Reboot your computer",
-            "3. Install driver: sc create ProtoonDrv type= kernel binpath= \"C:\\path\\to\\ProtoonDriver.sys\"",
-            "4. Start driver: sc start ProtoonDrv",
-            "5. Launch Roblox and join a game",
-            "6. Run Protoon.exe as Administrator",
-            "7. Map will be exported as .rbxlx file"
+        "package_contents": [
+            "ProtoonDriver.sys - Kernel driver",
+            "Protoon.exe - Map extractor application", 
+            "install.bat - One-click installer",
+            "uninstall.bat - Clean uninstaller",
+            "README.md - Full documentation"
+        ],
+        "installation": [
+            "1. Download Protoon-v1.0.0-win64.zip",
+            "2. Extract to any folder",
+            "3. Right-click install.bat → Run as Administrator",
+            "4. If prompted, enable test signing and reboot",
+            "5. Run install.bat again after reboot"
+        ],
+        "usage": [
+            "1. Join a Roblox game",
+            "2. Open Command Prompt as Admin",
+            "3. Run: C:\\Protoon\\Protoon.exe",
+            "4. Open extracted_map.rbxlx in Roblox Studio"
         ],
         "requirements": [
             "Windows 10/11 x64",
             "Administrator privileges",
-            "Visual Studio 2022 + WDK (for building)",
-            "Test signing mode enabled"
+            "Test signing mode (installer enables this)"
         ],
         "how_it_works": [
             "Kernel driver operates beneath Hyperion (Byfron) anti-cheat",
@@ -287,11 +299,6 @@ async def download_protoon():
             "Extracts DataModel instances including positions, sizes, materials",
             "Exports to standard .rbxlx format for Roblox Studio"
         ],
-        "files": {
-            "driver.c": "Kernel driver source code",
-            "memory_reader.hpp": "Memory reading library with current offsets",
-            "main.cpp": "Main application with RBXLX export"
-        },
         "offsets_source": "https://github.com/NtReadVirtualMemory/Roblox-Offsets-Website",
         "current_roblox_version": "version-b130242ed064436f"
     })
