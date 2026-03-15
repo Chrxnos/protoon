@@ -1,5 +1,5 @@
 /*
- * Protoon v1.4.1 - Roblox Asset & Map Extraction Tool
+ * Protoon v1.4.2 - Roblox Asset & Map Extraction Tool
  * 
  * Features:
  *   - Full game instance tree extraction (75k+ instances)
@@ -459,7 +459,7 @@ void PrintBanner() {
 |_|   |_|  \___/ \__\___/ \___/|_| |_|
                                       
     Roblox Asset & Map Extraction Tool
-    v1.4.1 - Authenticated CDN Downloads
+    v1.4.2 - Authenticated CDN Downloads
     )" << std::endl;
 }
 
@@ -705,6 +705,27 @@ int main(int argc, char* argv[]) {
     for (const auto& [cls, count] : sorted) {
         if (shown++ > 15) { std::cout << "    ... and more\n"; break; }
         std::cout << "    " << std::setw(25) << std::left << cls << " " << count << "\n";
+    }
+    
+    // Debug: show first 5 parts' CFrame data for verification
+    if (debugMode) {
+        std::cout << "\n[DEBUG] Sample part CFrame data (first 5 parts):\n";
+        int debugCount = 0;
+        for (const auto& inst : instances) {
+            if (inst.className == "Part" || inst.className == "MeshPart" ||
+                inst.className == "WedgePart" || inst.className == "UnionOperation") {
+                printf("  [%s] \"%s\"\n", inst.className.c_str(), inst.name.c_str());
+                printf("    Pos: (%.3f, %.3f, %.3f)\n", inst.position[0], inst.position[1], inst.position[2]);
+                printf("    Size: (%.3f, %.3f, %.3f)\n", inst.size[0], inst.size[1], inst.size[2]);
+                printf("    Rot: [%.3f, %.3f, %.3f | %.3f, %.3f, %.3f | %.3f, %.3f, %.3f]\n",
+                    inst.rotation[0], inst.rotation[1], inst.rotation[2],
+                    inst.rotation[3], inst.rotation[4], inst.rotation[5],
+                    inst.rotation[6], inst.rotation[7], inst.rotation[8]);
+                printf("    Transparency: %.2f, Anchored: %s, Material: %d\n",
+                    inst.transparency, inst.anchored ? "true" : "false", inst.material);
+                if (++debugCount >= 5) break;
+            }
+        }
     }
     
     // Deduplicate assets (only if user requested asset extraction)
