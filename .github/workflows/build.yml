@@ -61,7 +61,7 @@ jobs:
       run: |
         echo @echo off > release\install.bat
         echo echo ======================================== >> release\install.bat
-        echo echo    Protoon v1.4.2 Installer >> release\install.bat
+        echo echo    Protoon v1.4.3 Installer >> release\install.bat
         echo echo ======================================== >> release\install.bat
         echo net session ^>nul 2^>^&1 >> release\install.bat
         echo if %%errorLevel%% neq 0 ( >> release\install.bat
@@ -98,13 +98,13 @@ jobs:
     - name: Create ZIP Package
       shell: powershell
       run: |
-        Compress-Archive -Path "release\*" -DestinationPath "Protoon-v1.4.2-win64.zip"
+        Compress-Archive -Path "release\*" -DestinationPath "Protoon-v1.4.3-win64.zip"
     
     - name: Upload Release Package
       uses: actions/upload-artifact@v4
       with:
         name: protoon-release
-        path: Protoon-v1.4.2-win64.zip
+        path: Protoon-v1.4.3-win64.zip
 
   create-release:
     name: Create GitHub Release
@@ -123,24 +123,18 @@ jobs:
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
-        files: Protoon-v1.4.2-win64.zip
+        files: Protoon-v1.4.3-win64.zip
         body: |
-          ## Protoon v1.4.2 - CFrame Fix (Parts Now Visible!)
+          ## Protoon v1.4.3 - NaN Fix + Clean RBXLX
           
-          **Critical fix**: Parts were invisible in Roblox Studio because CFrame position was read from wrong memory indices. Fixed the row-major CFrame layout.
+          **Critical fix**: NaN values in MeshPart colors caused Studio to not render 93% of parts. Also cleaned up thousands of non-visual items from RBXLX.
           
-          ### Bug Fix
-          - **CFrame reading was wrong** — Roblox stores CFrame as ROW-MAJOR `[R00,R01,R02, R10,R11,R12, R20,R21,R22, X,Y,Z]`. We were reading position from indices [3,7,11] (column-major assumption) instead of [9,10,11]. This placed all parts at rotation-matrix values (-1 to 1) instead of their real world coordinates.
-          - **Rotation matrix was transposed** — Column-to-row conversion was applied but data was already row-major. Removed the transpose.
-          - **Added CFrame validation** — Degenerate rotation matrices (all zeros) fall back to identity. NaN values are detected and replaced.
-          - **Added `--debug` part diagnostic** — Running with `--debug` now shows the first 5 parts' CFrame/Size/Transparency data for verification.
-          
-          ### Previous Fixes (v1.4.0-v1.4.1)
-          - Path duplication fix
-          - Terrain class skipped in RBXLX
-          - Map-only mode no longer shows assets
-          - Authenticated CDN downloads via cookie.txt
-          - Retry logic for downloads
+          ### Bug Fixes
+          - **Fixed NaN colors** — MeshPart color reading (offset 0x194) was producing NaN values. Added strict NaN/range validation with fallback to default grey. 5646 NaN values eliminated.
+          - **Fixed NaN/garbage in all float properties** — All CFrame, Size, Color, and Transparency values are now sanitized before writing to XML. No more `-nan`, `3.29e-21`, or `inf` in the output.
+          - **Cleaned up RBXLX** — Removed ~5000 non-visual items (Weld, Attachment, Motor6D, SurfaceAppearance, PointLight, ParticleEmitter, Sound, Humanoid, etc.) that had empty properties and cluttered the file.
+          - **Added Name property to all items** — Folders and Models now have their Name written. Falls back to className if name is empty.
+          - **Improved Size validation** — Detects denormalized floats (like 3.6e-43) as garbage and falls back to defaults.
           
           ### Extraction Options
           1. Map only (.rbxlx)

@@ -1,5 +1,5 @@
 /*
- * Protoon v1.4.2 - Roblox Asset & Map Extraction Tool
+ * Protoon v1.4.3 - Roblox Asset & Map Extraction Tool
  * 
  * Features:
  *   - Full game instance tree extraction (75k+ instances)
@@ -352,13 +352,40 @@ std::string GenerateRBXLX(const std::vector<MemoryInstance>& instances) {
         "StatsItem", "NumberValue", "StringValue", "BoolValue", "IntValue",
         "ObjectValue", "CFrameValue", "Color3Value", "Vector3Value",
         "BrickColorValue", "RayValue",
-        "Configuration", "Camera"
+        "Configuration", "Camera",
+        // Non-visual items that clutter RBXLX with empty properties
+        "Weld", "WeldConstraint", "Motor6D", "ManualWeld",
+        "Attachment", "Bone",
+        "SurfaceAppearance", "MaterialVariant",
+        "Animator", "AnimationController",
+        "SpecialMesh",  // MeshPart handles its own mesh
+        "ClickDetector", "ProximityPrompt",
+        "Humanoid", "HumanoidDescription",
+        "BodyGyro", "BodyVelocity", "BodyPosition", "BodyForce",
+        "AlignPosition", "AlignOrientation",
+        "BallSocketConstraint", "HingeConstraint", "RopeConstraint",
+        "SpringConstraint", "CylindricalConstraint", "PrismaticConstraint",
+        "RodConstraint", "LineForce", "Torque", "VectorForce",
+        "ParticleEmitter", "Trail", "Beam",
+        "PointLight", "SpotLight", "SurfaceLight",
+        "Fire", "Smoke", "Sparkles", "Explosion",
+        "Sound", "SoundGroup",
+        "Accessory", "Shirt", "Pants", "ShirtGraphic", "CharacterMesh",
+        "Tool", "Backpack", "StarterPack",
+        "TerrainRegion", "Decal", "Texture"
     };
     
     // Part-like classes that get CFrame/Size/Color properties
     static const std::set<std::string> partClasses = {
         "Part", "MeshPart", "WedgePart", "SpawnLocation", "TrussPart",
         "CornerWedgePart", "UnionOperation", "NegateOperation", "Seat", "VehicleSeat"
+    };
+    
+    // Helper: sanitize float for XML (replace NaN/inf with safe value)
+    auto safeFloat = [](float v, float fallback = 0.0f) -> float {
+        if (v != v) return fallback;         // NaN check
+        if (v > 1e30f || v < -1e30f) return fallback; // inf/huge
+        return v;
     };
     
     // Recursive writer - only writes non-skipped classes
@@ -375,48 +402,59 @@ std::string GenerateRBXLX(const std::vector<MemoryInstance>& instances) {
         xml << tabs << "<Item class=\"" << inst->className << "\" referent=\"" << ref << "\">\n";
         xml << tabs << "  <Properties>\n";
         
-        // Name
-        if (!inst->name.empty()) {
-            xml << tabs << "    <string name=\"Name\">" << inst->name << "</string>\n";
-        }
+        // Always write Name (use className as fallback if name is empty)
+        std::string displayName = inst->name.empty() ? inst->className : inst->name;
+        xml << tabs << "    <string name=\"Name\">" << displayName << "</string>\n";
         
         // Part-specific properties
         if (partClasses.count(inst->className)) {
             writtenParts++;
             
-            // CFrame
+            // CFrame (all values sanitized)
             xml << tabs << "    <CoordinateFrame name=\"CFrame\">\n";
-            xml << tabs << "      <X>" << inst->position[0] << "</X>\n";
-            xml << tabs << "      <Y>" << inst->position[1] << "</Y>\n";
-            xml << tabs << "      <Z>" << inst->position[2] << "</Z>\n";
-            xml << tabs << "      <R00>" << inst->rotation[0] << "</R00>";
-            xml << "<R01>" << inst->rotation[1] << "</R01>";
-            xml << "<R02>" << inst->rotation[2] << "</R02>\n";
-            xml << tabs << "      <R10>" << inst->rotation[3] << "</R10>";
-            xml << "<R11>" << inst->rotation[4] << "</R11>";
-            xml << "<R12>" << inst->rotation[5] << "</R12>\n";
-            xml << tabs << "      <R20>" << inst->rotation[6] << "</R20>";
-            xml << "<R21>" << inst->rotation[7] << "</R21>";
-            xml << "<R22>" << inst->rotation[8] << "</R22>\n";
+            xml << tabs << "      <X>" << safeFloat(inst->position[0]) << "</X>\n";
+            xml << tabs << "      <Y>" << safeFloat(inst->position[1]) << "</Y>\n";
+            xml << tabs << "      <Z>" << safeFloat(inst->position[2]) << "</Z>\n";
+            xml << tabs << "      <R00>" << safeFloat(inst->rotation[0], 1.0f) << "</R00>";
+            xml << "<R01>" << safeFloat(inst->rotation[1]) << "</R01>";
+            xml << "<R02>" << safeFloat(inst->rotation[2]) << "</R02>\n";
+            xml << tabs << "      <R10>" << safeFloat(inst->rotation[3]) << "</R10>";
+            xml << "<R11>" << safeFloat(inst->rotation[4], 1.0f) << "</R11>";
+            xml << "<R12>" << safeFloat(inst->rotation[5]) << "</R12>\n";
+            xml << tabs << "      <R20>" << safeFloat(inst->rotation[6]) << "</R20>";
+            xml << "<R21>" << safeFloat(inst->rotation[7]) << "</R21>";
+            xml << "<R22>" << safeFloat(inst->rotation[8], 1.0f) << "</R22>\n";
             xml << tabs << "    </CoordinateFrame>\n";
             
-            // Size
+            // Size (sanitized — must be positive)
+            float sx = safeFloat(inst->size[0], 4.0f);
+            float sy = safeFloat(inst->size[1], 1.2f);
+            float sz = safeFloat(inst->size[2], 2.0f);
+            if (sx <= 0.001f) sx = 4.0f;
+            if (sy <= 0.001f) sy = 1.2f;
+            if (sz <= 0.001f) sz = 2.0f;
             xml << tabs << "    <Vector3 name=\"size\">\n";
-            xml << tabs << "      <X>" << inst->size[0] << "</X>\n";
-            xml << tabs << "      <Y>" << inst->size[1] << "</Y>\n";
-            xml << tabs << "      <Z>" << inst->size[2] << "</Z>\n";
+            xml << tabs << "      <X>" << sx << "</X>\n";
+            xml << tabs << "      <Y>" << sy << "</Y>\n";
+            xml << tabs << "      <Z>" << sz << "</Z>\n";
             xml << tabs << "    </Vector3>\n";
             
             xml << tabs << "    <bool name=\"Anchored\">" << (inst->anchored ? "true" : "false") << "</bool>\n";
             xml << tabs << "    <bool name=\"CanCollide\">" << (inst->canCollide ? "true" : "false") << "</bool>\n";
-            xml << tabs << "    <float name=\"Transparency\">" << inst->transparency << "</float>\n";
+            xml << tabs << "    <float name=\"Transparency\">" << safeFloat(inst->transparency) << "</float>\n";
             xml << tabs << "    <token name=\"Material\">" << GetMaterialName(inst->material) << "</token>\n";
             
-            // Color
+            // Color (sanitized — clamp 0-1, replace NaN)
+            float cr = safeFloat(inst->color[0], 0.63f);
+            float cg = safeFloat(inst->color[1], 0.63f);
+            float cb = safeFloat(inst->color[2], 0.63f);
+            if (cr < 0 || cr > 1) cr = 0.63f;
+            if (cg < 0 || cg > 1) cg = 0.63f;
+            if (cb < 0 || cb > 1) cb = 0.63f;
             xml << tabs << "    <Color3 name=\"Color\">\n";
-            xml << tabs << "      <R>" << inst->color[0] << "</R>\n";
-            xml << tabs << "      <G>" << inst->color[1] << "</G>\n";
-            xml << tabs << "      <B>" << inst->color[2] << "</B>\n";
+            xml << tabs << "      <R>" << cr << "</R>\n";
+            xml << tabs << "      <G>" << cg << "</G>\n";
+            xml << tabs << "      <B>" << cb << "</B>\n";
             xml << tabs << "    </Color3>\n";
         }
         
@@ -459,7 +497,7 @@ void PrintBanner() {
 |_|   |_|  \___/ \__\___/ \___/|_| |_|
                                       
     Roblox Asset & Map Extraction Tool
-    v1.4.2 - Authenticated CDN Downloads
+    v1.4.3 - Authenticated CDN Downloads
     )" << std::endl;
 }
 

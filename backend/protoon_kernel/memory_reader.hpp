@@ -622,20 +622,33 @@ public:
             }
             
             // Size (read directly from instance)
-            inst.size[0] = Read<float>(address + RobloxOffsets::PartSize + 0x0);
-            inst.size[1] = Read<float>(address + RobloxOffsets::PartSize + 0x4);
-            inst.size[2] = Read<float>(address + RobloxOffsets::PartSize + 0x8);
+            float rawSize[3];
+            rawSize[0] = Read<float>(address + RobloxOffsets::PartSize + 0x0);
+            rawSize[1] = Read<float>(address + RobloxOffsets::PartSize + 0x4);
+            rawSize[2] = Read<float>(address + RobloxOffsets::PartSize + 0x8);
             
-            // Validate size - if all zero or absurdly large, use defaults
-            if ((inst.size[0] <= 0.001f && inst.size[1] <= 0.001f && inst.size[2] <= 0.001f) ||
-                inst.size[0] > 100000.0f || inst.size[1] > 100000.0f || inst.size[2] > 100000.0f) {
+            // Validate size — check for NaN, denormals, zero, and absurd values
+            bool sizeValid = true;
+            for (int i = 0; i < 3; i++) {
+                if (rawSize[i] != rawSize[i]) { sizeValid = false; break; } // NaN
+                if (rawSize[i] <= 0.01f || rawSize[i] > 100000.0f) { sizeValid = false; break; }
+            }
+            
+            if (sizeValid) {
+                inst.size[0] = rawSize[0];
+                inst.size[1] = rawSize[1];
+                inst.size[2] = rawSize[2];
+            } else {
                 inst.size[0] = 4.0f;
                 inst.size[1] = 1.2f;
                 inst.size[2] = 2.0f;
             }
             
             inst.transparency = Read<float>(address + RobloxOffsets::Transparency);
-            if (inst.transparency < 0.0f || inst.transparency > 1.0f) inst.transparency = 0.0f;
+            // NaN/garbage check — only accept valid float in [0, 1]
+            if (inst.transparency != inst.transparency || inst.transparency < 0.0f || inst.transparency > 1.0f) {
+                inst.transparency = 0.0f;
+            }
             
             uint8_t flags = Read<uint8_t>(address + RobloxOffsets::Anchored);
             inst.anchored = (flags & RobloxOffsets::AnchoredMask) != 0;
@@ -643,15 +656,25 @@ public:
             
             inst.material = Read<uint8_t>(address + RobloxOffsets::MaterialType);
             
-            // Color for MeshPart
+            // Color for MeshPart — read from MeshPartColor3 offset
+            // If values are NaN or out of range, use default grey
             if (inst.className == "MeshPart") {
-                inst.color[0] = Read<float>(address + RobloxOffsets::MeshPartColor3 + 0x0);
-                inst.color[1] = Read<float>(address + RobloxOffsets::MeshPartColor3 + 0x4);
-                inst.color[2] = Read<float>(address + RobloxOffsets::MeshPartColor3 + 0x8);
-                // Validate color range
-                for (int i = 0; i < 3; i++) {
-                    if (inst.color[i] < 0.0f || inst.color[i] > 1.0f) inst.color[i] = 0.63f;
+                float r = Read<float>(address + RobloxOffsets::MeshPartColor3 + 0x0);
+                float g = Read<float>(address + RobloxOffsets::MeshPartColor3 + 0x4);
+                float b = Read<float>(address + RobloxOffsets::MeshPartColor3 + 0x8);
+                
+                // Strict NaN/range validation
+                bool valid = (r == r && g == g && b == b &&  // NaN check
+                             r >= 0.0f && r <= 1.0f &&
+                             g >= 0.0f && g <= 1.0f &&
+                             b >= 0.0f && b <= 1.0f);
+                
+                if (valid) {
+                    inst.color[0] = r;
+                    inst.color[1] = g;
+                    inst.color[2] = b;
                 }
+                // else keep default grey (0.639, 0.635, 0.647)
             }
         }
         
