@@ -5,7 +5,7 @@
  * This reads the DataModel from Roblox process memory
  * using kernel-level access beneath Hyperion
  * 
- * v1.4.0 - Enhanced with:
+ * v1.4.2 - Enhanced with:
  *   - Debug logging for troubleshooting
  *   - Multiple traversal methods for instance tree (Method B confirmed)
  *   - Asset reference reading (textures, sounds, animations, meshes)
@@ -581,27 +581,44 @@ public:
             // Read Primitive pointer for CFrame
             uintptr_t primitive = Read<uintptr_t>(address + RobloxOffsets::Primitive);
             if (primitive) {
-                // CFrame is stored on the primitive in COLUMN-MAJOR format:
-                // Memory layout: [R00, R10, R20, X, R01, R11, R21, Y, R02, R12, R22, Z]
-                // (3 rotation column vectors interleaved with position components)
+                // CFrame is stored as ROW-MAJOR in Roblox memory:
+                // Memory layout: [R00, R01, R02, R10, R11, R12, R20, R21, R22, X, Y, Z]
+                // Position starts at offset 0xE4 = CFrame(0xC0) + 9*4 = index 9
                 float cframe[12] = {0};
                 ReadMemory(primitive + RobloxOffsets::CFrame, cframe, sizeof(cframe));
                 
-                // Extract position (interleaved at indices 3, 7, 11)
-                inst.position[0] = cframe[3];   // X
-                inst.position[1] = cframe[7];   // Y
+                // Extract position (last 3 floats, indices 9, 10, 11)
+                inst.position[0] = cframe[9];   // X
+                inst.position[1] = cframe[10];  // Y
                 inst.position[2] = cframe[11];  // Z
                 
-                // Extract rotation (column-major to row-major)
+                // Rotation is already row-major (first 9 floats)
                 inst.rotation[0] = cframe[0];   // R00
-                inst.rotation[1] = cframe[4];   // R01
-                inst.rotation[2] = cframe[8];   // R02
-                inst.rotation[3] = cframe[1];   // R10
-                inst.rotation[4] = cframe[5];   // R11
-                inst.rotation[5] = cframe[9];   // R12
-                inst.rotation[6] = cframe[2];   // R20
-                inst.rotation[7] = cframe[6];   // R21
-                inst.rotation[8] = cframe[10];  // R22
+                inst.rotation[1] = cframe[1];   // R01
+                inst.rotation[2] = cframe[2];   // R02
+                inst.rotation[3] = cframe[3];   // R10
+                inst.rotation[4] = cframe[4];   // R11
+                inst.rotation[5] = cframe[5];   // R12
+                inst.rotation[6] = cframe[6];   // R20
+                inst.rotation[7] = cframe[7];   // R21
+                inst.rotation[8] = cframe[8];   // R22
+                
+                // Validate: if rotation matrix is degenerate (all zeros), use identity
+                bool rotValid = false;
+                for (int i = 0; i < 9; i++) {
+                    if (cframe[i] != 0.0f) { rotValid = true; break; }
+                }
+                if (!rotValid) {
+                    inst.rotation[0] = 1.0f; inst.rotation[4] = 1.0f; inst.rotation[8] = 1.0f;
+                }
+                
+                // Validate: check for NaN in position/rotation
+                for (int i = 0; i < 3; i++) {
+                    if (inst.position[i] != inst.position[i]) inst.position[i] = 0.0f; // NaN check
+                }
+                for (int i = 0; i < 9; i++) {
+                    if (inst.rotation[i] != inst.rotation[i]) inst.rotation[i] = (i == 0 || i == 4 || i == 8) ? 1.0f : 0.0f;
+                }
             }
             
             // Size (read directly from instance)

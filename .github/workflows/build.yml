@@ -61,7 +61,7 @@ jobs:
       run: |
         echo @echo off > release\install.bat
         echo echo ======================================== >> release\install.bat
-        echo echo    Protoon v1.4.1 Installer >> release\install.bat
+        echo echo    Protoon v1.4.2 Installer >> release\install.bat
         echo echo ======================================== >> release\install.bat
         echo net session ^>nul 2^>^&1 >> release\install.bat
         echo if %%errorLevel%% neq 0 ( >> release\install.bat
@@ -98,13 +98,13 @@ jobs:
     - name: Create ZIP Package
       shell: powershell
       run: |
-        Compress-Archive -Path "release\*" -DestinationPath "Protoon-v1.4.1-win64.zip"
+        Compress-Archive -Path "release\*" -DestinationPath "Protoon-v1.4.2-win64.zip"
     
     - name: Upload Release Package
       uses: actions/upload-artifact@v4
       with:
         name: protoon-release
-        path: Protoon-v1.4.1-win64.zip
+        path: Protoon-v1.4.2-win64.zip
 
   create-release:
     name: Create GitHub Release
@@ -123,22 +123,24 @@ jobs:
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
-        files: Protoon-v1.4.1-win64.zip
+        files: Protoon-v1.4.2-win64.zip
         body: |
-          ## Protoon v1.4.1 - Bug Fixes
+          ## Protoon v1.4.2 - CFrame Fix (Parts Now Visible!)
           
-          Fixes three bugs reported from v1.4.0 testing.
+          **Critical fix**: Parts were invisible in Roblox Studio because CFrame position was read from wrong memory indices. Fixed the row-major CFrame layout.
           
-          ### Bug Fixes
-          - **Fixed path duplication** — Output no longer creates `Downloads/Game/Downloads/Game`. Added deduplication safety net + uses exe directory (not CWD) as base. Prints exe directory for diagnostics.
-          - **Fixed Roblox Studio "Terrain" error** — RBXLX export now skips the `Terrain` class (Workspace already has one built-in; adding another causes "Unable to change Terrain's parent" error)
-          - **Fixed map-only mode** — Choosing option [1] Map only no longer collects/displays asset references or saves an asset manifest. Clean map-only extraction.
+          ### Bug Fix
+          - **CFrame reading was wrong** — Roblox stores CFrame as ROW-MAJOR `[R00,R01,R02, R10,R11,R12, R20,R21,R22, X,Y,Z]`. We were reading position from indices [3,7,11] (column-major assumption) instead of [9,10,11]. This placed all parts at rotation-matrix values (-1 to 1) instead of their real world coordinates.
+          - **Rotation matrix was transposed** — Column-to-row conversion was applied but data was already row-major. Removed the transpose.
+          - **Added CFrame validation** — Degenerate rotation matrices (all zeros) fall back to identity. NaN values are detected and replaced.
+          - **Added `--debug` part diagnostic** — Running with `--debug` now shows the first 5 parts' CFrame/Size/Transparency data for verification.
           
-          ### Features (from v1.4.0)
-          - **Authenticated CDN downloads** — `.ROBLOSECURITY` cookie support via `cookie.txt` or `--cookie` flag
-          - **OpenCloud API + legacy fallback** — tries `apis.roblox.com` first, then `assetdelivery.roblox.com`
-          - **Retry logic** — auto-retry on download failure
-          - **75k+ instances** — confirmed working with large games
+          ### Previous Fixes (v1.4.0-v1.4.1)
+          - Path duplication fix
+          - Terrain class skipped in RBXLX
+          - Map-only mode no longer shows assets
+          - Authenticated CDN downloads via cookie.txt
+          - Retry logic for downloads
           
           ### Extraction Options
           1. Map only (.rbxlx)
