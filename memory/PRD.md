@@ -60,7 +60,16 @@ Build "Protoon" - a Roblox asset & map extraction tool combining Fleasion (HTTP 
 - **Fixed CFrame reading**: Column-major to row-major conversion
 - **Fixed Workspace filtering**: Only visual parts in RBXLX export
 
-### v1.4.3 (2026-01-28) — Current
+### v1.5.0 (2026-01-28) — Current
+- **MeshId extraction**: Auto-scans 27 candidate memory offsets to find MeshId on MeshParts. Once found, caches the offset for all subsequent parts. MeshId is written as `<Content name="MeshId">` in RBXLX so Studio can load actual 3D geometry.
+- **TextureID extraction**: Reads texture URL from offset 0x318 and writes as `<Content name="TextureID">` in RBXLX.
+- **Auto-scan Size offset**: If known offset (0x1B0) returns garbage, scans 31 alternative offsets. Caches the working offset.
+- **Auto-cookie from Roblox local storage**: Reads `.ROBLOSECURITY` from `%LocalAppData%/Roblox/LocalStorage/RobloxCookies.dat` using DPAPI decryption (same approach as Fleasion). No manual cookie.txt needed.
+- **ClassName null-byte trimming**: Fixed potential issue where class names with trailing null bytes (`"MeshPart\0"`) wouldn't match the partClasses set, causing empty Properties blocks.
+- **Expanded skipClasses**: Removed ~5000 non-visual items (Weld, Attachment, Motor6D, SurfaceAppearance, Humanoid, Sound, etc.) from RBXLX.
+- **NaN sanitization**: All float values (CFrame, Size, Color, Transparency) sanitized before RBXLX output.
+
+### v1.4.3 (2026-01-28)
 - **Fixed NaN colors on MeshParts** — Color offset 0x194 was producing NaN values (detected -nan in Green channel of 5490 MeshParts = 93% of visual items). Added strict NaN/range validation with grey fallback.
 - **Sanitized ALL float values** in RBXLX output — CFrame, Size, Color, Transparency all go through NaN/inf/garbage detection.
 - **Cleaned up RBXLX** — Removed ~5000 non-visual items (Weld, Attachment, Motor6D, SurfaceAppearance, PointLight, etc.) that had empty properties.
