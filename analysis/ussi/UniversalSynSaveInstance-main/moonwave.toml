@@ -1,0 +1,36 @@
+title = "Universal Syn SaveInstance"
+
+[home]
+enabled = true
+bannerImage = "logo.png"
+
+[docusaurus]
+favicon = "favicon.png"
+tagline = "A universal saveinstance revival. This can also be edited and used as a Roblox-Format-File writer."
+
+
+[[navbar.items]]
+href = "https://discord.gg/wx4ThpAsmw"
+label = "Discord"
+position = "right"
+
+[[navbar.items]]
+href = "https://ko-fi.com/M4M1JNH5G"
+label = "Support"
+position = "right"
+
+[navbar.logo]
+src = "favicon.png"
+
+[[footer.links]]
+href = "https://discord.gg/wx4ThpAsmw"
+label = "Discord"
+[[footer.links]]
+href = "https://ko-fi.com/M4M1JNH5G"
+label = "Support"
+
+[footer.logo]
+src = "favicon.png"
+width = 50
+height = 50
+

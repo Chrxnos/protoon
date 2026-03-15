@@ -1,0 +1,8 @@
+__pycache__
+.luaurc
+.vscode
+build
+docs
+tempCodeRunnerFile.luau
+test.luau
+test.py

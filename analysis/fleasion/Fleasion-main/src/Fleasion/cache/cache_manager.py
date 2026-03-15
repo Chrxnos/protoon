@@ -1,0 +1,649 @@
+"""Cache manager for storing and organizing intercepted Roblox assets."""
+
+import gzip
+import hashlib
+import threading
+from functools import lru_cache
+from pathlib import Path
+from datetime import datetime
+from typing import Optional
+
+from ..utils import CONFIG_DIR, log_buffer
+
+# Use orjson if available (2-3x faster), fallback to json
+try:
+    import orjson
+    def json_dumps(obj, **kwargs):
+        # orjson doesn't support indent parameter in the same way, but we can do it for pretty-print
+        if kwargs.get('indent'):
+            return orjson.dumps(obj, option=orjson.OPT_INDENT_2).decode('utf-8')
+        return orjson.dumps(obj).decode('utf-8')
+    def json_loads(s):
+        return orjson.loads(s)
+except ImportError:
+    import json
+    json_dumps = json.dumps
+    json_loads = json.loads
+
+
+class CacheManager:
+    """Manages cached Roblox assets organized by type."""
+
+    # Asset types mapping
+    ASSET_TYPES = {
+        1: 'Image', 2: 'TShirt', 3: 'Audio', 4: 'Mesh', 5: 'Lua',
+        6: 'HTML', 7: 'Text', 8: 'Hat', 9: 'Place', 10: 'Model',
+        11: 'Shirt', 12: 'Pants', 13: 'Decal', 16: 'Avatar', 17: 'Head',
+        18: 'Face', 19: 'Gear', 21: 'Badge', 22: 'GroupEmblem',
+        24: 'Animation', 25: 'Arms', 26: 'Legs', 27: 'Torso',
+        28: 'RightArm', 29: 'LeftArm', 30: 'LeftLeg', 31: 'RightLeg',
+        32: 'Package', 33: 'YouTubeVideo', 34: 'GamePass', 35: 'App',
+        37: 'Code', 38: 'Plugin', 39: 'SolidModel', 40: 'MeshPart',
+        41: 'HairAccessory', 42: 'FaceAccessory', 43: 'NeckAccessory',
+        44: 'ShoulderAccessory', 45: 'FrontAccessory', 46: 'BackAccessory',
+        47: 'WaistAccessory', 48: 'ClimbAnimation', 49: 'DeathAnimation',
+        50: 'FallAnimation', 51: 'IdleAnimation', 52: 'JumpAnimation',
+        53: 'RunAnimation', 54: 'SwimAnimation', 55: 'WalkAnimation',
+        56: 'PoseAnimation', 57: 'EarAccessory', 58: 'EyeAccessory',
+        59: 'LocalizationTableManifest', 61: 'EmoteAnimation', 62: 'Video',
+        63: 'TexturePack', 64: 'TShirtAccessory', 65: 'ShirtAccessory',
+        66: 'PantsAccessory', 67: 'JacketAccessory', 68: 'SweaterAccessory',
+        69: 'ShortsAccessory', 70: 'LeftShoeAccessory', 71: 'RightShoeAccessory',
+        72: 'DressSkirtAccessory', 73: 'FontFamily', 74: 'FontFace',
+        75: 'MeshHiddenSurfaceRemoval', 76: 'EyebrowAccessory',
+        77: 'EyelashAccessory', 78: 'MoodAnimation', 79: 'DynamicHead',
+        80: 'CodeSnippet',
+    }
+
+    def __init__(self, config_manager=None):
+        """Initialize cache manager."""
+        self.cache_dir = CONFIG_DIR / 'FleasionNT' / 'Cache'
+        self.export_dir = CONFIG_DIR / 'FleasionNT' / 'Exports'
+        self.index_file = self.cache_dir / 'index.json'
+        self.config_manager = config_manager
+        self._lock = threading.Lock()
+        
+        # Debounced index writes: reduce disk I/O by batching writes
+        # Instead of writing on every store_asset(), we schedule a write 500ms in the future
+        # If another write comes in before 500ms, we cancel the pending one and reschedule
+        self._index_dirty = False
+        self._index_commit_timer = None
+        
+        # LRU cache for asset reads (256 assets max ~50-100MB depending on size)
+        # This drastically speeds up repeated lookups during preview, search, export operations
+        self._asset_cache = {}
+        self._asset_cache_lock = threading.Lock()
+        self._asset_cache_maxsize = 256
+
+        # Create cache directory structure
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.export_dir.mkdir(parents=True, exist_ok=True)
+
+        # Load or create index
+        self.index = self._load_index()
+
+    def _load_index(self) -> dict:
+        """Load cache index from disk."""
+        if self.index_file.exists():
+            try:
+                with self.index_file.open('r', encoding='utf-8') as f:
+                    return json_loads(f.read())
+            except (ValueError, OSError):  # ValueError for orjson, JSONDecodeError for json
+                pass
+        return {'assets': {}, 'version': '1.0'}
+
+    def _save_index(self):
+        """Save cache index to disk (called by debounced timer)."""
+        try:
+            with self.index_file.open('w', encoding='utf-8') as f:
+                f.write(json_dumps(self.index, indent=2))
+        except OSError as e:
+            log_buffer.log('Scraper', f'Failed to save cache index: {e}')
+    
+    def _schedule_index_commit(self):
+        """Schedule index write with debouncing (500ms delay).
+        
+        If _index_dirty is already True and a timer is pending, cancel it and reschedule.
+        This reduces disk writes from 1000+ per scraping to ~20 when caching thousands of assets.
+        """
+        if self._index_commit_timer is not None:
+            self._index_commit_timer.cancel()
+        
+        self._index_dirty = True
+        self._index_commit_timer = threading.Timer(0.5, self._flush_index)
+        self._index_commit_timer.daemon = True
+        self._index_commit_timer.start()
+    
+    def _flush_index(self):
+        """Internal method called by timer to actually write the index."""
+        with self._lock:
+            if self._index_dirty:
+                self._save_index()
+                self._index_dirty = False
+            self._index_commit_timer = None
+
+    def get_asset_type_name(self, type_id: int) -> str:
+        """Get asset type name from ID."""
+        return self.ASSET_TYPES.get(type_id, f'Unknown({type_id})')
+
+    def get_asset_path(self, asset_id: str, asset_type: int) -> Path:
+        """Get storage path for an asset."""
+        type_name = self.get_asset_type_name(asset_type)
+        type_dir = self.cache_dir / type_name
+        type_dir.mkdir(exist_ok=True)
+        return type_dir / f'{asset_id}.bin'
+
+    def store_asset(self, asset_id: str, asset_type: int, data: bytes,
+                   url: str = '', metadata: Optional[dict] = None) -> bool:
+        """
+        Store an asset in the cache.
+
+        Args:
+            asset_id: Asset ID (usually from URL)
+            asset_type: Roblox asset type ID
+            data: Raw asset data
+            url: Original URL
+            metadata: Additional metadata
+
+        Returns:
+            True if stored successfully
+        """
+        try:
+            # Store the asset file
+            asset_path = self.get_asset_path(asset_id, asset_type)
+
+            # Compress data if it's large
+            if len(data) > 10240:  # 10KB threshold
+                with gzip.open(asset_path, 'wb') as f:
+                    f.write(data)
+                compressed = True
+            else:
+                asset_path.write_bytes(data)
+                compressed = False
+
+            # Calculate hash for deduplication
+            file_hash = hashlib.sha256(data).hexdigest()[:16]
+
+            # Update index under lock to prevent concurrent corruption
+            with self._lock:
+                asset_key = f'{asset_type}_{asset_id}'
+                self.index['assets'][asset_key] = {
+                    'id': asset_id,
+                    'type': asset_type,
+                    'type_name': self.get_asset_type_name(asset_type),
+                    'url': url,
+                    'size': len(data),
+                    'compressed': compressed,
+                    'hash': file_hash,
+                    'cached_at': datetime.now().isoformat(),
+                    'metadata': metadata or {},
+                }
+
+                # Schedule debounced index write instead of immediate disk write
+                self._schedule_index_commit()
+            
+            # Invalidate cache for this asset in case it was updated
+            cache_key = f'{asset_type}_{asset_id}'
+            with self._asset_cache_lock:
+                self._asset_cache.pop(cache_key, None)
+            return True
+
+        except Exception as e:
+            log_buffer.log('Scraper', f'Failed to store asset {asset_id}: {e}')
+            return False
+
+    def get_asset(self, asset_id: str, asset_type: int) -> Optional[bytes]:
+        """
+        Retrieve an asset from cache with LRU in-memory caching.
+
+        Args:
+            asset_id: Asset ID
+            asset_type: Asset type ID
+
+        Returns:
+            Asset data or None if not found
+        """
+        cache_key = f'{asset_type}_{asset_id}'
+        
+        # Check LRU cache first (avoids disk I/O for repeated reads)
+        with self._asset_cache_lock:
+            if cache_key in self._asset_cache:
+                return self._asset_cache[cache_key]
+        
+        try:
+            asset_path = self.get_asset_path(asset_id, asset_type)
+            if not asset_path.exists():
+                return None
+
+            asset_key = f'{asset_type}_{asset_id}'
+            asset_info = self.index['assets'].get(asset_key, {})
+
+            if asset_info.get('compressed', False):
+                with gzip.open(asset_path, 'rb') as f:
+                    data = f.read()
+            else:
+                data = asset_path.read_bytes()
+            
+            # Store in LRU cache with simple eviction (remove oldest when full)
+            with self._asset_cache_lock:
+                if len(self._asset_cache) >= self._asset_cache_maxsize:
+                    # Remove first (oldest) entry
+                    oldest_key = next(iter(self._asset_cache))
+                    del self._asset_cache[oldest_key]
+                self._asset_cache[cache_key] = data
+            
+            return data
+
+        except Exception as e:
+            log_buffer.log('Scraper', f'Failed to retrieve asset {asset_id}: {e}')
+            return None
+
+    def get_asset_info(self, asset_id: str, asset_type: int) -> Optional[dict]:
+        """Get metadata about a cached asset."""
+        asset_key = f'{asset_type}_{asset_id}'
+        return self.index['assets'].get(asset_key)
+
+    def list_assets(self, asset_types: Optional[set[int]] = None) -> list[dict]:
+        """
+        List all cached assets, optionally filtered by types.
+
+        Args:
+            asset_types: Optional set of asset type IDs to filter by
+
+        Returns:
+            List of asset metadata dictionaries
+        """
+        # Take a snapshot to avoid dictionary changed during iteration
+        assets = list(dict(self.index['assets']).values())
+
+        if asset_types is not None and len(asset_types) > 0:
+            assets = [a for a in assets if a['type'] in asset_types]
+
+        # Sort by cached_at descending (newest first)
+        assets.sort(key=lambda a: a.get('cached_at', ''), reverse=True)
+
+        return assets
+
+    def get_available_export_formats(self, asset_type: int) -> list[str]:
+        """
+        Get available export formats for an asset type.
+
+        Args:
+            asset_type: Asset type ID
+
+        Returns:
+            List of available formats with extensions e.g: 'converted_obj', 'bin', 'raw'
+        """
+        formats = ['raw']  # Raw is always available (original cached data)
+
+        # Add 'bin' for decompressed data if applicable
+        formats.append('bin')
+
+        # Add 'converted' for types that support conversion
+        if asset_type == 4:  # Mesh - can convert to OBJ
+            formats.insert(0, 'converted_obj')
+        elif asset_type == 3:  # Audio - proper extension (ogg/mp3 handled in export)
+            formats.insert(0, 'converted_audio')
+        elif asset_type in (1, 13):  # Image, Decal
+            formats.insert(0, 'converted_png')
+        elif asset_type == 63:  # TexturePack
+            formats.insert(0, 'converted')
+        elif asset_type == 24:  # Animation
+            formats.insert(0, 'converted_rbxmx')
+        elif asset_type == 39:  # SolidModel
+            formats.insert(0, 'converted_rbxmx')
+            formats.insert(0, 'converted_obj')
+
+        return formats
+
+    def export_asset(self, asset_id: str, asset_type: int,
+                    output_path: Optional[Path] = None, resolved_name: str = None,
+                    export_format: str = 'converted') -> Optional[Path]:
+        """
+        Export an asset to the exports folder.
+
+        Args:
+            asset_id: Asset ID
+            asset_type: Asset type ID
+            output_path: Optional custom output path
+            resolved_name: Optional resolved asset name for filename
+            export_format: Export format - 'converted', 'bin', or 'raw'
+
+        Returns:
+            Path to exported file or None on failure
+        """
+        try:
+            data = self.get_asset(asset_id, asset_type)
+            if not data:
+                return None
+
+            if output_path is None:
+                type_name = self.get_asset_type_name(asset_type)
+
+                # Determine subfolder based on format
+                if export_format.startswith('converted'):
+                    export_type_dir = self.export_dir / 'converted' / type_name
+                elif export_format == 'bin':
+                    export_type_dir = self.export_dir / 'bin' / type_name
+                else:  # raw
+                    export_type_dir = self.export_dir / 'raw' / type_name
+                export_type_dir.mkdir(parents=True, exist_ok=True)
+
+                # Determine filename based on config settings
+                asset_info = self.get_asset_info(asset_id, asset_type)
+                hash_val = asset_info.get('hash', '') if asset_info else ''
+
+                # Build filename from enabled naming options
+                filename_parts = []
+                if self.config_manager:
+                    naming_options = self.config_manager.export_naming
+                    if 'name' in naming_options and resolved_name:
+                        # Sanitize resolved name
+                        sanitized_name = ''.join(c if c.isalnum() or c in (' ', '-', '_') else '_' for c in resolved_name)
+                        filename_parts.append(sanitized_name[:100])
+                    if 'id' in naming_options and asset_id:
+                        filename_parts.append(asset_id)
+                    if 'hash' in naming_options and hash_val:
+                        filename_parts.append(hash_val)
+
+                # Fallback if no options enabled or no config manager
+                if not filename_parts:
+                    filename_parts.append(asset_id if asset_id else hash_val)
+
+                filename = '_'.join(filename_parts)[:200]  # Limit total length
+
+                # Export based on format
+                if export_format == 'raw':
+                    # Raw export - original cached data with .bin extension
+                    output_path = export_type_dir / f'{filename}.bin'
+                    output_path.write_bytes(data)
+                    return output_path
+
+                elif export_format == 'bin':
+                    # Binary export - decompressed if needed, with detected extension
+                    ext = self._detect_extension(data, asset_type)
+                    output_path = export_type_dir / f'{filename}{ext}'
+                    output_path.write_bytes(data)
+                    return output_path
+
+                # Converted export - convert to usable format
+                if export_format == 'converted_obj' and asset_type == 4:  # Mesh - convert to OBJ
+                    from . import mesh_processing
+                    try:
+                        mesh_data = data
+                        if data.startswith(b'\x1f\x8b'):
+                            import gzip as gzip_module
+                            mesh_data = gzip_module.decompress(data)
+                        
+                        obj_data = mesh_processing.convert(mesh_data)
+                        
+                        if obj_data:
+                            output_path = export_type_dir / f'{filename}.obj'
+                            output_path.write_text(obj_data, encoding='utf-8')
+                            return output_path
+                    except Exception:
+                        pass  # Fall through to binary export
+                    # Fallback
+                    output_path = export_type_dir / f'{filename}.mesh'
+
+                elif export_format == 'converted_obj' and asset_type == 39:  # SolidModel -> obj
+                    from .tools.solidmodel_converter.converter import _export_obj_from_doc, deserialize_rbxm
+                    try:
+                        doc = deserialize_rbxm(data)
+                        output_path = export_type_dir / f'{filename}.obj'
+                        _export_obj_from_doc(doc, output_path, decompose=False)
+                        return output_path
+                    except Exception as e:
+                        from ..utils import log_buffer
+                        log_buffer.log('Export', f'Failed to export SolidModel OBJ: {e}')
+                        pass # Fall through to binary
+                    
+                elif export_format == 'converted_rbxmx' and asset_type == 39:  # SolidModel -> rbxmx
+                    from .tools.solidmodel_converter.converter import deserialize_rbxm, _try_extract_child_data, _get_top_level_mesh_data, _inject_mesh_data
+                    from .tools.solidmodel_converter.rbxm.xml_writer import write_rbxmx
+                    try:
+                        decompressed = data
+                        if data.startswith(b'\x1f\x8b'):
+                            import gzip as gzip_module
+                            decompressed = gzip_module.decompress(data)
+                            
+                        doc = deserialize_rbxm(decompressed)
+                        
+                        top_mesh_data = _get_top_level_mesh_data(doc)
+                        child_doc = _try_extract_child_data(doc)
+                        if child_doc is not None:
+                            doc = child_doc
+                            if top_mesh_data is not None:
+                                _inject_mesh_data(doc, top_mesh_data)
+                                
+                        xml_bytes = write_rbxmx(doc)
+                        output_path = export_type_dir / f'{filename}.rbxmx'
+                        output_path.write_bytes(xml_bytes)
+                        return output_path
+                    except Exception as e:
+                        from ..utils import log_buffer
+                        log_buffer.log('Export', f'Failed to export SolidModel RBXMX: {e}')
+                        pass
+                
+                elif export_format == 'converted_audio':  # Audio - export as OGG/MP3
+                    # Check file signature to determine format
+                    if data.startswith(b'OggS'):
+                        output_path = export_type_dir / f'{filename}.ogg'
+                    elif data.startswith(b'ID3') or data.startswith(b'\xFF\xFB'):
+                        output_path = export_type_dir / f'{filename}.mp3'
+                    else:
+                        output_path = export_type_dir / f'{filename}.ogg'  # Default to ogg
+
+                elif export_format == 'converted_png':  # Image, Decal - export as PNG
+                    # Data should already be PNG (converted from KTX at scrape time)
+                    output_path = export_type_dir / f'{filename}.png'
+                    output_path.write_bytes(data)
+                    return output_path
+
+                elif export_format == 'converted' and asset_type == 63:  # TexturePack - export individual textures
+                    return self._export_texturepack(data, asset_id, export_type_dir, filename)
+
+                elif export_format == 'converted_rbxmx' and asset_type == 24:  # Animation - export as RBXMX
+                    output_path = export_type_dir / f'{filename}.rbxmx'
+
+                else:
+                    # Default binary export
+                    output_path = export_type_dir / f'{filename}.bin'
+
+            output_path.write_bytes(data)
+            return output_path
+
+        except Exception as e:
+            from ..utils import log_buffer
+            log_buffer.log('Scraper', f'Failed to export asset {asset_id}: {e}')
+            return None
+
+    def _detect_extension(self, data: bytes, asset_type: int) -> str:
+        """Detect file extension based on data signature."""
+        if asset_type == 39:
+            return '.bin'
+        if data.startswith(b'\x89PNG'):
+            return '.png'
+        elif data.startswith(b'OggS'):
+            return '.ogg'
+        elif data.startswith(b'ID3') or data.startswith(b'\xFF\xFB'):
+            return '.mp3'
+        elif data.startswith(b'version '):
+            return '.mesh'
+        elif data.startswith(b'<roblox'):
+            return '.rbxmx'
+        elif data.startswith(b'\xABKTX'):
+            return '.ktx'
+        elif data.startswith(b'\x1f\x8b'):
+            return '.gz'
+        else:
+            return '.bin'
+
+    def _export_texturepack(self, data: bytes, asset_id: str,
+                           export_type_dir: Path, base_filename: str) -> Optional[Path]:
+        """
+        Export texture pack by extracting all textures to subfolders.
+
+        Args:
+            data: XML data of texture pack
+            asset_id: Asset ID of the texture pack
+            export_type_dir: Base export directory for TexturePack
+            base_filename: Base filename for the export
+
+        Returns:
+            Path to export directory or None on failure
+        """
+        import xml.etree.ElementTree as ET
+        import requests
+
+        from ..utils import log_buffer
+
+        try:
+            # Parse XML
+            xml_text = data.decode('utf-8', errors='replace')
+            root = ET.fromstring(xml_text)
+
+            # Extract texture map IDs
+            map_order = ['color', 'normal', 'metalness', 'roughness', 'emissive']
+            maps = {}
+            for elem in map_order:
+                node = root.find(elem)
+                if node is not None and node.text:
+                    maps[elem.capitalize()] = node.text
+
+            if not maps:
+                log_buffer.log('Export', f'No texture maps found in texture pack {asset_id}')
+                return None
+
+            # Export directly to TexturePack folder with texture type subfolders
+            exported_count = 0
+            for map_name, map_id in maps.items():
+                # Create subfolder for this texture type directly in TexturePack folder
+                type_dir = export_type_dir / map_name
+                type_dir.mkdir(exist_ok=True)
+
+                # Get cached texture (type 1 = Image)
+                texture_data = self.get_asset(str(map_id), 1)
+                texture_hash = ''
+
+                if texture_data:
+                    # Get hash from cache
+                    texture_info = self.get_asset_info(str(map_id), 1)
+                    texture_hash = texture_info.get('hash', '') if texture_info else ''
+                else:
+                    # Not in cache - fetch from API
+                    log_buffer.log('Export', f'Fetching {map_name} texture {map_id} from API')
+                    try:
+                        from urllib.parse import urlparse
+                        api_url = f'https://assetdelivery.roblox.com/v1/asset/?id={map_id}'
+                        headers = {'User-Agent': 'Roblox/WinInet'}
+                        response = requests.get(api_url, headers=headers, timeout=15, allow_redirects=True)
+                        if response.status_code == 200 and response.content:
+                            texture_data = response.content
+                            # Extract hash from final URL path
+                            final_url = response.url
+                            parsed = urlparse(final_url)
+                            path_parts = parsed.path.rsplit('/', 1)
+                            if len(path_parts) > 1 and path_parts[-1]:
+                                texture_hash = path_parts[-1]
+                    except Exception as e:
+                        log_buffer.log('Export', f'Failed to fetch texture {map_id}: {e}')
+                        continue
+
+                if not texture_data:
+                    log_buffer.log('Export', f'No data for texture {map_id}')
+                    continue
+
+                # Build filename: ID_Hash.png (no map_name since folder already indicates type)
+                filename_parts = [map_id]
+                if texture_hash:
+                    filename_parts.append(texture_hash)
+                texture_filename = '_'.join(filename_parts)
+
+                # Write texture
+                texture_path = type_dir / f'{texture_filename}.png'
+                texture_path.write_bytes(texture_data)
+                exported_count += 1
+                log_buffer.log('Export', f'Exported {map_name} texture to {texture_path.name}')
+
+            if exported_count > 0:
+                log_buffer.log('Export', f'Exported {exported_count} textures from pack {asset_id}')
+                return export_type_dir
+            else:
+                log_buffer.log('Export', f'No textures exported for pack {asset_id}')
+                return None
+
+        except Exception as e:
+            from ..utils import log_buffer
+            log_buffer.log('Export', f'Failed to export texture pack {asset_id}: {e}')
+            return None
+
+    def delete_asset(self, asset_id: str, asset_type: int) -> bool:
+        """
+        Delete an asset from cache.
+
+        Args:
+            asset_id: Asset ID
+            asset_type: Asset type ID
+
+        Returns:
+            True if deleted successfully
+        """
+        try:
+            asset_path = self.get_asset_path(asset_id, asset_type)
+            if asset_path.exists():
+                asset_path.unlink()
+
+            with self._lock:
+                asset_key = f'{asset_type}_{asset_id}'
+                if asset_key in self.index['assets']:
+                    del self.index['assets'][asset_key]
+                    self._save_index()
+
+            return True
+
+        except Exception as e:
+            log_buffer.log('Scraper', f'Failed to delete asset {asset_id}: {e}')
+            return False
+
+    def clear_cache(self, asset_type: Optional[int] = None) -> int:
+        """
+        Clear cached assets.
+
+        Args:
+            asset_type: Optional asset type to clear, or None for all
+
+        Returns:
+            Number of assets deleted
+        """
+        count = 0
+        assets_to_delete = []
+
+        for asset_key, asset_info in self.index['assets'].items():
+            if asset_type is None or asset_info['type'] == asset_type:
+                assets_to_delete.append((asset_info['id'], asset_info['type']))
+
+        for asset_id, atype in assets_to_delete:
+            if self.delete_asset(asset_id, atype):
+                count += 1
+
+        return count
+
+    def get_cache_stats(self) -> dict:
+        """Get cache statistics."""
+        # Take a snapshot to avoid dictionary changed during iteration
+        assets_snapshot = dict(self.index['assets'])
+
+        total_assets = len(assets_snapshot)
+        total_size = sum(a.get('size', 0) for a in assets_snapshot.values())
+
+        types_count = {}
+        for asset_info in assets_snapshot.values():
+            type_name = asset_info.get('type_name', 'Unknown')
+            types_count[type_name] = types_count.get(type_name, 0) + 1
+
+        return {
+            'total_assets': total_assets,
+            'total_size': total_size,
+            'types_count': types_count,
+        }
