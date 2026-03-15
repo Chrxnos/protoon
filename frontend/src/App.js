@@ -16,6 +16,31 @@ const FeatureCard = ({ icon: Icon, title, description }) => (
   </div>
 );
 
+const TechniqueSection = () => (
+  <div className="technique-section" data-testid="technique-section">
+    <h3>How Protoon Works</h3>
+    <div className="technique-content">
+      <div className="technique-problem">
+        <h4>The Challenge</h4>
+        <ul>
+          <li>Roblox uses proprietary QUIC protocol (not RakNet) with encryption</li>
+          <li>Hyperion anti-cheat blocks user-mode memory reading</li>
+          <li>DLL hooking is detected and blocked</li>
+        </ul>
+      </div>
+      <div className="technique-solution">
+        <h4>Our Solution: Kernel-Level Access</h4>
+        <ul>
+          <li>Kernel driver operates <strong>beneath</strong> Hyperion in OS hierarchy</li>
+          <li>Direct memory read via MmCopyVirtualMemory</li>
+          <li>Uses current offsets from community research</li>
+          <li>Extracts full DataModel including part positions, sizes, materials</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+);
+
 const ToolCard = ({ tool, onDownload }) => (
   <div className="tool-card" data-testid={`tool-${tool.name.toLowerCase()}`}>
     <div className="tool-header">
@@ -138,10 +163,10 @@ function App() {
         {
           name: "Protoon",
           version: "1.0.0",
-          description: "Combined Roblox asset extraction and map saving tool. Intercepts UDP packets to capture game instances and export maps.",
+          description: "Kernel-level Roblox map extractor. Reads game memory beneath Hyperion anti-cheat using kernel driver. Extracts DataModel instances and exports to .rbxlx for Roblox Studio.",
           download_url: "/api/download/protoon",
-          size: "~15 MB",
-          platform: "Windows x64"
+          size: "~500 KB",
+          platform: "Windows x64 (Kernel)"
         },
         {
           name: "Fleasion",
@@ -234,29 +259,30 @@ synsaveinstance(Options)`;
           <FeatureCard
             icon={Layers}
             title="Map Saving"
-            description="Capture entire game worlds through UDP packet interception. Export as .rbxlx files for use in Roblox Studio."
+            description="Kernel-level memory reading extracts full DataModel. Get part positions, sizes, materials - everything needed to rebuild maps."
           />
           <FeatureCard
             icon={Cpu}
-            title="Protocol Analysis"
-            description="Deep analysis of Roblox's RakNet protocol. Decode instance creation, property updates, and replication packets."
+            title="Beneath Hyperion"
+            description="Kernel driver operates at ring 0, below Hyperion's user-mode detection. Undetected memory access."
           />
           <FeatureCard
             icon={Zap}
-            title="Real-time Capture"
-            description="Live packet capture with instant instance reconstruction. See the game world build as you explore."
+            title="Current Offsets"
+            description="Auto-updated offsets from community research. Works with latest Roblox version (version-b130242ed064436f)."
           />
           <FeatureCard
             icon={Shield}
-            title="No Injection"
-            description="Works through network interception - no DLL injection or memory manipulation required."
+            title="No Executor Needed"
+            description="Unlike USSI, Protoon doesn't require a Roblox executor. Pure external memory reading."
           />
           <FeatureCard
             icon={Terminal}
             title="Open Source"
-            description="Built on open-source foundations including roblox-dissector and UniversalSynSaveInstance."
+            description="Full source code available. Kernel driver, memory reader, and RBXLX exporter included."
           />
         </div>
+        <TechniqueSection />
       </section>
 
       {/* Downloads Section */}
@@ -296,23 +322,23 @@ synsaveinstance(Options)`;
         <div className="steps">
           <div className="step">
             <div className="step-number">1</div>
-            <h3>Launch Tool</h3>
-            <p>Run Protoon as Administrator to enable packet capture</p>
+            <h3>Install Driver</h3>
+            <p>Enable test signing, install kernel driver with sc create</p>
           </div>
           <div className="step">
             <div className="step-number">2</div>
             <h3>Join Game</h3>
-            <p>Launch Roblox and join any game you want to capture</p>
+            <p>Launch Roblox and join any game you want to extract</p>
           </div>
           <div className="step">
             <div className="step-number">3</div>
-            <h3>Explore</h3>
-            <p>Walk around to load map data through network packets</p>
+            <h3>Run Protoon</h3>
+            <p>Execute Protoon.exe as Administrator</p>
           </div>
           <div className="step">
             <div className="step-number">4</div>
             <h3>Export</h3>
-            <p>Save the captured world as a .rbxlx file for Studio</p>
+            <p>Map automatically extracted to .rbxlx file</p>
           </div>
         </div>
       </section>

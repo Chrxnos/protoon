@@ -58,7 +58,10 @@ class ProtoonAPITester:
             
             if success:
                 self.log_test(name, True)
-                return True, response.json() if response.headers.get('content-type', '').startswith('application/json') else response.text
+                try:
+                    return True, response.json() if response.headers.get('content-type', '').startswith('application/json') else response.text
+                except:
+                    return True, response.text
             else:
                 self.log_test(name, False, f"Status {response.status_code}, expected {expected_status}")
                 return False, {}
@@ -175,10 +178,13 @@ class ProtoonAPITester:
     def test_ussi_download_endpoint(self):
         """Test /api/download/ussi endpoint"""
         def check_ussi_response(data):
-            return (
-                isinstance(data, dict) and
-                ('script' in data or 'download_url' in data)
-            )
+            # USSI endpoint returns either JSON with script/download_url or lua script directly
+            if isinstance(data, dict):
+                return 'script' in data or 'download_url' in data
+            elif isinstance(data, str):
+                # Check if it's a lua script
+                return data.strip().startswith('--') or 'loadstring' in data or 'synsaveinstance' in data
+            return False
         
         return self.run_test(
             "USSI download endpoint",

@@ -78,10 +78,10 @@ async def get_tools():
         ToolInfo(
             name="Protoon",
             version="1.0.0",
-            description="Combined Roblox asset extraction and map saving tool. Intercepts UDP packets to capture game instances and export maps.",
+            description="Kernel-level Roblox map extractor. Reads game memory beneath Hyperion anti-cheat using kernel driver. Extracts DataModel instances and exports to .rbxlx for Roblox Studio.",
             download_url="/api/download/protoon",
-            size="~15 MB",
-            platform="Windows x64"
+            size="~500 KB",
+            platform="Windows x64 (Kernel Driver)"
         ),
         ToolInfo(
             name="Fleasion",
@@ -262,26 +262,65 @@ print("Download full script from: https://raw.githubusercontent.com/luau/Univers
 async def download_protoon():
     """Get Protoon download info"""
     return JSONResponse(content={
-        "message": "Protoon executable download",
+        "message": "Protoon - Kernel-Level Roblox Map Extractor",
+        "version": "1.0.0",
+        "approach": "Kernel-level memory reading beneath Hyperion anti-cheat",
         "instructions": [
-            "1. Download the Protoon.exe from releases",
-            "2. Run as Administrator (required for packet capture)",
-            "3. Launch Roblox and join a game",
-            "4. Click 'Start Capture' in Protoon",
-            "5. Play the game to capture instances",
-            "6. Click 'Export' to save as .rbxlx"
+            "1. Enable test signing: bcdedit /set testsigning on",
+            "2. Reboot your computer",
+            "3. Install driver: sc create ProtoonDrv type= kernel binpath= \"C:\\path\\to\\ProtoonDriver.sys\"",
+            "4. Start driver: sc start ProtoonDrv",
+            "5. Launch Roblox and join a game",
+            "6. Run Protoon.exe as Administrator",
+            "7. Map will be exported as .rbxlx file"
         ],
         "requirements": [
             "Windows 10/11 x64",
             "Administrator privileges",
-            "WinPcap or Npcap installed"
+            "Visual Studio 2022 + WDK (for building)",
+            "Test signing mode enabled"
         ],
-        "build_from_source": {
-            "clone": "git clone https://github.com/protoon/protoon",
-            "install": "pip install -r requirements.txt",
-            "build": "pyinstaller Protoon.spec"
-        }
+        "how_it_works": [
+            "Kernel driver operates beneath Hyperion (Byfron) anti-cheat",
+            "Reads Roblox process memory directly via kernel APIs",
+            "Uses current offsets from NtReadVirtualMemory/Roblox-Offsets-Website",
+            "Extracts DataModel instances including positions, sizes, materials",
+            "Exports to standard .rbxlx format for Roblox Studio"
+        ],
+        "files": {
+            "driver.c": "Kernel driver source code",
+            "memory_reader.hpp": "Memory reading library with current offsets",
+            "main.cpp": "Main application with RBXLX export"
+        },
+        "offsets_source": "https://github.com/NtReadVirtualMemory/Roblox-Offsets-Website",
+        "current_roblox_version": "version-b130242ed064436f"
     })
+
+@api_router.get("/download/source")
+async def download_source():
+    """Get Protoon source code files"""
+    from fastapi.responses import FileResponse
+    import zipfile
+    import tempfile
+    import shutil
+    
+    # Create zip of kernel source
+    temp_dir = tempfile.mkdtemp()
+    zip_path = os.path.join(temp_dir, "protoon_kernel_source.zip")
+    
+    kernel_dir = ROOT_DIR / "protoon_kernel"
+    
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        for file in ["driver.c", "memory_reader.hpp", "main.cpp", "CMakeLists.txt", "BUILD.md"]:
+            filepath = kernel_dir / file
+            if filepath.exists():
+                zipf.write(filepath, file)
+    
+    return FileResponse(
+        path=zip_path,
+        filename="protoon_kernel_source.zip",
+        media_type="application/zip"
+    )
 
 @api_router.get("/health")
 async def health_check():

@@ -428,6 +428,91 @@ section h2 {
   text-align: center;
 }
 
+/* Technique Section */
+.technique-section {
+  background: linear-gradient(135deg, rgba(0, 255, 136, 0.05) 0%, rgba(0, 100, 255, 0.05) 100%);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 2rem;
+  margin-top: 3rem;
+}
+
+.technique-section h3 {
+  font-family: 'Orbitron', sans-serif;
+  color: var(--accent-primary);
+  margin-bottom: 1.5rem;
+  font-size: 1.5rem;
+}
+
+.technique-content {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+}
+
+.technique-problem, .technique-solution {
+  padding: 1.5rem;
+  border-radius: 12px;
+}
+
+.technique-problem {
+  background: rgba(255, 68, 68, 0.1);
+  border: 1px solid rgba(255, 68, 68, 0.3);
+}
+
+.technique-solution {
+  background: rgba(0, 255, 136, 0.1);
+  border: 1px solid rgba(0, 255, 136, 0.3);
+}
+
+.technique-problem h4 {
+  color: var(--error);
+  margin-bottom: 1rem;
+  font-family: 'Orbitron', sans-serif;
+}
+
+.technique-solution h4 {
+  color: var(--accent-primary);
+  margin-bottom: 1rem;
+  font-family: 'Orbitron', sans-serif;
+}
+
+.technique-problem ul, .technique-solution ul {
+  list-style: none;
+  padding: 0;
+}
+
+.technique-problem li, .technique-solution li {
+  padding: 0.5rem 0;
+  padding-left: 1.5rem;
+  position: relative;
+  color: var(--text-secondary);
+}
+
+.technique-problem li::before {
+  content: '✕';
+  position: absolute;
+  left: 0;
+  color: var(--error);
+}
+
+.technique-solution li::before {
+  content: '✓';
+  position: absolute;
+  left: 0;
+  color: var(--accent-primary);
+}
+
+.technique-solution strong {
+  color: var(--accent-primary);
+}
+
+@media (max-width: 768px) {
+  .technique-content {
+    grid-template-columns: 1fr;
+  }
+}
+
 .code-block {
   background: var(--bg-card);
   border: 1px solid var(--border-color);
