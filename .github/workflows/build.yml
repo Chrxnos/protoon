@@ -61,7 +61,7 @@ jobs:
       run: |
         echo @echo off > release\install.bat
         echo echo ======================================== >> release\install.bat
-        echo echo    Protoon v1.4.3 Installer >> release\install.bat
+        echo echo    Protoon v1.5.0 Installer >> release\install.bat
         echo echo ======================================== >> release\install.bat
         echo net session ^>nul 2^>^&1 >> release\install.bat
         echo if %%errorLevel%% neq 0 ( >> release\install.bat
@@ -98,13 +98,13 @@ jobs:
     - name: Create ZIP Package
       shell: powershell
       run: |
-        Compress-Archive -Path "release\*" -DestinationPath "Protoon-v1.4.3-win64.zip"
+        Compress-Archive -Path "release\*" -DestinationPath "Protoon-v1.5.0-win64.zip"
     
     - name: Upload Release Package
       uses: actions/upload-artifact@v4
       with:
         name: protoon-release
-        path: Protoon-v1.4.3-win64.zip
+        path: Protoon-v1.5.0-win64.zip
 
   create-release:
     name: Create GitHub Release
@@ -123,18 +123,31 @@ jobs:
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
-        files: Protoon-v1.4.3-win64.zip
+        files: Protoon-v1.5.0-win64.zip
         body: |
-          ## Protoon v1.4.3 - NaN Fix + Clean RBXLX
+          ## Protoon v1.5.0 - 1:1 Map Copy
           
-          **Critical fix**: NaN values in MeshPart colors caused Studio to not render 93% of parts. Also cleaned up thousands of non-visual items from RBXLX.
+          **Major update**: MeshParts now include their actual 3D geometry (MeshId) and textures (TextureID). Maps should now look like the actual game in Roblox Studio.
           
-          ### Bug Fixes
-          - **Fixed NaN colors** — MeshPart color reading (offset 0x194) was producing NaN values. Added strict NaN/range validation with fallback to default grey. 5646 NaN values eliminated.
-          - **Fixed NaN/garbage in all float properties** — All CFrame, Size, Color, and Transparency values are now sanitized before writing to XML. No more `-nan`, `3.29e-21`, or `inf` in the output.
-          - **Cleaned up RBXLX** — Removed ~5000 non-visual items (Weld, Attachment, Motor6D, SurfaceAppearance, PointLight, ParticleEmitter, Sound, Humanoid, etc.) that had empty properties and cluttered the file.
-          - **Added Name property to all items** — Folders and Models now have their Name written. Falls back to className if name is empty.
-          - **Improved Size validation** — Detects denormalized floats (like 3.6e-43) as garbage and falls back to defaults.
+          ### New Features
+          - **MeshId extraction** — MeshParts now include their 3D mesh geometry asset. Auto-scans memory to find the MeshId offset (not in community offsets).
+          - **TextureID extraction** — MeshParts include their surface texture for proper appearance.
+          - **Auto-scanning Size offset** — If the known Size offset returns garbage, scans alternative offsets to find the correct one. Caches the result for all subsequent parts.
+          - **Cleaned RBXLX** — Removed non-visual items (Weld, Attachment, Motor6D, SurfaceAppearance, Humanoid, PointLight, Sound, etc.) that had no properties and cluttered the file.
+          
+          ### Bug Fixes (from v1.4.x)
+          - Fixed NaN colors on MeshParts (93% of parts had -nan in color values)
+          - Fixed CFrame row-major layout (parts now at correct world positions)
+          - Fixed path duplication (Downloads/Game/Downloads/Game)
+          - Fixed Terrain error in Studio
+          - All float values sanitized (NaN/inf replaced with safe defaults)
+          
+          ### Debug Mode
+          Run with `--debug` to see:
+          - First 5 parts' CFrame, Size, Color, MeshId, TextureID values
+          - Auto-detected offset addresses for MeshId and PartSize
+          
+          Use: `Protoon.exe --debug` from Command Prompt as Administrator
           
           ### Extraction Options
           1. Map only (.rbxlx)

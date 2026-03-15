@@ -142,6 +142,10 @@ struct MemoryInstance {
     // Color
     float color[3] = {0.639f, 0.635f, 0.647f}; // Default Medium stone grey
     
+    // Content properties for MeshPart (needed for 1:1 copy)
+    std::string meshId;       // MeshPart.MeshId (3D geometry asset)
+    std::string textureId;    // MeshPart.TextureID (surface texture)
+    
     // Asset references found on this instance
     std::vector<AssetReference> assetRefs;
 };
@@ -513,12 +517,61 @@ public:
             }
         }
         
-        // MeshPart texture
+        // MeshPart — read MeshId + TextureID for 1:1 map copy
         if (inst.className == "MeshPart") {
-            std::string url = ReadContentString(inst.address, RobloxOffsets::MeshPartTexture);
-            std::string id = ExtractAssetId(url);
-            if (!id.empty()) {
-                inst.assetRefs.push_back({id, "Image", inst.name, inst.className, url});
+            // TextureID at known offset 0x318
+            std::string texUrl = ReadContentString(inst.address, RobloxOffsets::MeshPartTexture);
+            std::string texId = ExtractAssetId(texUrl);
+            if (!texId.empty()) {
+                inst.assetRefs.push_back({texId, "Image", inst.name, inst.className, texUrl});
+                inst.textureId = texUrl;
+            }
+            
+            // MeshId — scan candidate offsets (not in community offsets file)
+            // MeshId is typically near TextureID (0x318). Try scanning around it.
+            static constexpr uintptr_t meshIdCandidates[] = {
+                0x2C0, 0x2C8, 0x2D0, 0x2D8, 0x2E0, 0x2E8,
+                0x2F0, 0x2F8, 0x300, 0x308, 0x310, 0x320,
+                0x328, 0x330, 0x338, 0x340, 0x348, 0x350,
+                0x278, 0x280, 0x288, 0x290, 0x298, 0x2A0, 0x2A8, 0x2B0, 0x2B8
+            };
+            
+            // Cache: once we find the right offset, reuse it
+            static uintptr_t cachedMeshIdOffset = 0;
+            
+            if (cachedMeshIdOffset != 0) {
+                // Use cached offset
+                std::string meshUrl = ReadContentString(inst.address, cachedMeshIdOffset);
+                if (!meshUrl.empty() && (meshUrl.find("rbxassetid://") != std::string::npos || 
+                    meshUrl.find("rbxasset://") != std::string::npos)) {
+                    std::string meshId = ExtractAssetId(meshUrl);
+                    if (!meshId.empty()) {
+                        inst.meshId = meshUrl;
+                        inst.assetRefs.push_back({meshId, "Mesh", inst.name, inst.className, meshUrl});
+                    }
+                }
+            } else {
+                // Scan for MeshId offset
+                for (uintptr_t candidateOff : meshIdCandidates) {
+                    if (candidateOff == RobloxOffsets::MeshPartTexture) continue; // Skip TextureID
+                    
+                    std::string url = ReadContentString(inst.address, candidateOff);
+                    if (!url.empty() && (url.find("rbxassetid://") != std::string::npos || 
+                        url.find("rbxasset://") != std::string::npos)) {
+                        // Verify it's different from TextureID (it's a mesh, not texture)
+                        std::string meshAssetId = ExtractAssetId(url);
+                        if (!meshAssetId.empty() && meshAssetId != texId) {
+                            inst.meshId = url;
+                            inst.assetRefs.push_back({meshAssetId, "Mesh", inst.name, inst.className, url});
+                            cachedMeshIdOffset = candidateOff;
+                            if (debugMode) {
+                                printf("[DEBUG] Found MeshId at offset 0x%llX: %s\n", 
+                                    (unsigned long long)candidateOff, url.c_str());
+                            }
+                            break;
+                        }
+                    }
+                }
             }
         }
         
@@ -621,27 +674,82 @@ public:
                 }
             }
             
-            // Size (read directly from instance)
-            float rawSize[3];
-            rawSize[0] = Read<float>(address + RobloxOffsets::PartSize + 0x0);
-            rawSize[1] = Read<float>(address + RobloxOffsets::PartSize + 0x4);
-            rawSize[2] = Read<float>(address + RobloxOffsets::PartSize + 0x8);
+            // Size — try known offset, then scan alternatives if garbage
+            static uintptr_t cachedSizeOffset = 0;
             
-            // Validate size — check for NaN, denormals, zero, and absurd values
-            bool sizeValid = true;
-            for (int i = 0; i < 3; i++) {
-                if (rawSize[i] != rawSize[i]) { sizeValid = false; break; } // NaN
-                if (rawSize[i] <= 0.01f || rawSize[i] > 100000.0f) { sizeValid = false; break; }
-            }
-            
-            if (sizeValid) {
-                inst.size[0] = rawSize[0];
-                inst.size[1] = rawSize[1];
-                inst.size[2] = rawSize[2];
+            if (cachedSizeOffset != 0) {
+                // Use cached working offset
+                float rawSize[3];
+                rawSize[0] = Read<float>(address + cachedSizeOffset + 0x0);
+                rawSize[1] = Read<float>(address + cachedSizeOffset + 0x4);
+                rawSize[2] = Read<float>(address + cachedSizeOffset + 0x8);
+                
+                bool sizeValid = true;
+                for (int i = 0; i < 3; i++) {
+                    if (rawSize[i] != rawSize[i] || rawSize[i] <= 0.01f || rawSize[i] > 100000.0f) {
+                        sizeValid = false; break;
+                    }
+                }
+                if (sizeValid) {
+                    inst.size[0] = rawSize[0]; inst.size[1] = rawSize[1]; inst.size[2] = rawSize[2];
+                } else {
+                    inst.size[0] = 4.0f; inst.size[1] = 1.2f; inst.size[2] = 2.0f;
+                }
             } else {
-                inst.size[0] = 4.0f;
-                inst.size[1] = 1.2f;
-                inst.size[2] = 2.0f;
+                // Try the known offset first
+                float rawSize[3];
+                rawSize[0] = Read<float>(address + RobloxOffsets::PartSize + 0x0);
+                rawSize[1] = Read<float>(address + RobloxOffsets::PartSize + 0x4);
+                rawSize[2] = Read<float>(address + RobloxOffsets::PartSize + 0x8);
+                
+                bool sizeValid = true;
+                for (int i = 0; i < 3; i++) {
+                    if (rawSize[i] != rawSize[i] || rawSize[i] <= 0.01f || rawSize[i] > 100000.0f) {
+                        sizeValid = false; break;
+                    }
+                }
+                
+                if (sizeValid) {
+                    inst.size[0] = rawSize[0]; inst.size[1] = rawSize[1]; inst.size[2] = rawSize[2];
+                    cachedSizeOffset = RobloxOffsets::PartSize;
+                } else {
+                    // Scan candidate offsets for Size
+                    static constexpr uintptr_t sizeCandidates[] = {
+                        0x1A4, 0x1A8, 0x1AC, 0x1B0, 0x1B4, 0x1B8, 0x1BC, 0x1C0,
+                        0x1C4, 0x1C8, 0x1CC, 0x1D0, 0x1D4, 0x1D8, 0x1DC, 0x1E0,
+                        0x1E4, 0x1E8, 0x1EC, 0x1F0, 0x200, 0x210, 0x220, 0x230,
+                        0x240, 0x250, 0x260, 0x270, 0x280, 0x290, 0x2A0
+                    };
+                    
+                    bool found = false;
+                    for (uintptr_t off : sizeCandidates) {
+                        if (off == RobloxOffsets::PartSize) continue; // Already tried
+                        
+                        float s[3];
+                        s[0] = Read<float>(address + off + 0x0);
+                        s[1] = Read<float>(address + off + 0x4);
+                        s[2] = Read<float>(address + off + 0x8);
+                        
+                        // Valid size: reasonable range for Roblox parts
+                        if (s[0] > 0.05f && s[0] < 10000.0f &&
+                            s[1] > 0.05f && s[1] < 10000.0f &&
+                            s[2] > 0.05f && s[2] < 10000.0f &&
+                            s[0] == s[0] && s[1] == s[1] && s[2] == s[2]) {
+                            inst.size[0] = s[0]; inst.size[1] = s[1]; inst.size[2] = s[2];
+                            cachedSizeOffset = off;
+                            if (debugMode) {
+                                printf("[DEBUG] Found PartSize at offset 0x%llX: (%.2f, %.2f, %.2f)\n",
+                                    (unsigned long long)off, s[0], s[1], s[2]);
+                            }
+                            found = true;
+                            break;
+                        }
+                    }
+                    
+                    if (!found) {
+                        inst.size[0] = 4.0f; inst.size[1] = 1.2f; inst.size[2] = 2.0f;
+                    }
+                }
             }
             
             inst.transparency = Read<float>(address + RobloxOffsets::Transparency);

@@ -1,9 +1,11 @@
 /*
- * Protoon v1.4.3 - Roblox Asset & Map Extraction Tool
+ * Protoon v1.5.0 - Roblox Asset & Map Extraction Tool
  * 
  * Features:
  *   - Full game instance tree extraction (75k+ instances)
+ *   - 1:1 map copy with MeshPart geometry (MeshId + TextureID)
  *   - Authenticated asset downloading via Roblox CDN
+ *   - Auto-scanning for MeshId and Size offsets
  *   - Organized Downloads folder per game with categories
  *   - Fleasion-style scrape options (8 modes)
  *   - Kernel driver for undetected mode (optional)
@@ -456,6 +458,16 @@ std::string GenerateRBXLX(const std::vector<MemoryInstance>& instances) {
             xml << tabs << "      <G>" << cg << "</G>\n";
             xml << tabs << "      <B>" << cb << "</B>\n";
             xml << tabs << "    </Color3>\n";
+            
+            // MeshPart-specific: MeshId and TextureID (critical for 1:1 geometry)
+            if (inst->className == "MeshPart") {
+                if (!inst->meshId.empty()) {
+                    xml << tabs << "    <Content name=\"MeshId\"><url>" << inst->meshId << "</url></Content>\n";
+                }
+                if (!inst->textureId.empty()) {
+                    xml << tabs << "    <Content name=\"TextureID\"><url>" << inst->textureId << "</url></Content>\n";
+                }
+            }
         }
         
         xml << tabs << "  </Properties>\n";
@@ -497,7 +509,7 @@ void PrintBanner() {
 |_|   |_|  \___/ \__\___/ \___/|_| |_|
                                       
     Roblox Asset & Map Extraction Tool
-    v1.4.3 - Authenticated CDN Downloads
+    v1.5.0 - 1:1 Map Copy
     )" << std::endl;
 }
 
@@ -761,6 +773,10 @@ int main(int argc, char* argv[]) {
                     inst.rotation[6], inst.rotation[7], inst.rotation[8]);
                 printf("    Transparency: %.2f, Anchored: %s, Material: %d\n",
                     inst.transparency, inst.anchored ? "true" : "false", inst.material);
+                if (!inst.meshId.empty())
+                    printf("    MeshId: %s\n", inst.meshId.c_str());
+                if (!inst.textureId.empty())
+                    printf("    TextureID: %s\n", inst.textureId.c_str());
                 if (++debugCount >= 5) break;
             }
         }
