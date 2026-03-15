@@ -161,6 +161,11 @@ void PrintBanner() {
     )" << std::endl;
 }
 
+void WaitForExit() {
+    std::cout << "\nPress Enter to exit...";
+    std::cin.get();
+}
+
 int main(int argc, char* argv[]) {
     PrintBanner();
     
@@ -174,15 +179,17 @@ int main(int argc, char* argv[]) {
     ProtoonMemoryReader reader;
     
     if (!reader.Initialize()) {
-        std::cout << "[!] Failed to initialize. Make sure:\n";
-        std::cout << "    1. Roblox is running\n";
-        std::cout << "    2. You have admin privileges\n";
-        std::cout << "    3. Kernel driver is loaded (optional but recommended)\n";
+        std::cout << "\n[!] Failed to initialize. Make sure:\n";
+        std::cout << "    1. Roblox is running (RobloxPlayerBeta.exe)\n";
+        std::cout << "    2. You are IN A GAME (not just the launcher)\n";
+        std::cout << "    3. You're running as Administrator\n";
+        std::cout << "    4. (Optional) Kernel driver is loaded for undetected mode\n";
         std::cout << "\nTo load driver:\n";
         std::cout << "    bcdedit /set testsigning on\n";
         std::cout << "    (reboot)\n";
-        std::cout << "    sc create ProtoonDrv type= kernel binpath= \"C:\\path\\to\\ProtoonDriver.sys\"\n";
+        std::cout << "    sc create ProtoonDrv type= kernel binpath= \"C:\\Protoon\\ProtoonDriver.sys\"\n";
         std::cout << "    sc start ProtoonDrv\n";
+        WaitForExit();
         return 1;
     }
     
@@ -193,7 +200,9 @@ int main(int argc, char* argv[]) {
     auto instances = reader.ExtractMap();
     
     if (instances.empty()) {
-        std::cout << "[!] No instances extracted. Try joining a game first.\n";
+        std::cout << "[!] No instances extracted.\n";
+        std::cout << "    Make sure you're inside a Roblox game (not the menu).\n";
+        WaitForExit();
         return 1;
     }
     
@@ -216,14 +225,18 @@ int main(int argc, char* argv[]) {
     std::ofstream file(outputFile);
     if (!file) {
         std::cout << "[!] Failed to create output file\n";
+        WaitForExit();
         return 1;
     }
     
     file << xml;
     file.close();
     
-    std::cout << "[+] Map saved to: " << outputFile << "\n";
+    std::cout << "\n========================================\n";
+    std::cout << "[+] SUCCESS! Map saved to: " << outputFile << "\n";
     std::cout << "[+] You can now open this file in Roblox Studio!\n";
+    std::cout << "========================================\n";
     
+    WaitForExit();
     return 0;
 }
