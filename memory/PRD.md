@@ -9,7 +9,7 @@ Build "Protoon" - a Roblox asset & map extraction tool combining Fleasion (HTTP 
 ├── .github/workflows/build.yml     # GitHub Actions: builds C++ on Windows, creates releases
 ├── backend/
 │   ├── protoon_kernel/
-│   │   ├── main.cpp                # C++ user-mode app (interactive menu, asset download, RBXLX export)
+│   │   ├── main.cpp                # C++ user-mode app (interactive menu, auth CDN download, RBXLX export)
 │   │   ├── memory_reader.hpp       # Memory reading library (DataModel traversal, asset refs)
 │   │   ├── driver.c                # Kernel driver for undetected mode
 │   │   ├── FULL_GUIDE.md           # User documentation
@@ -34,6 +34,7 @@ Build "Protoon" - a Roblox asset & map extraction tool combining Fleasion (HTTP 
 4. Organized Downloads folder per game with categorized subfolders
 5. Website with download portal and documentation
 6. GitHub Actions CI/CD for automated builds and releases
+7. Authenticated CDN downloads via .ROBLOSECURITY cookie
 
 ## What's Been Implemented
 
@@ -44,47 +45,66 @@ Build "Protoon" - a Roblox asset & map extraction tool combining Fleasion (HTTP 
 - GitHub Actions build workflow
 - Bug fix: console window staying open
 
-### v1.1.0 (2026-03-15) - Current
+### v1.1.0 (2026-03-15)
 - **Interactive extraction menu** with 8 Fleasion-style options
 - **Asset downloading** from Roblox CDN via WinHTTP
 - **Organized Downloads folder**: `Downloads/Game_PlaceID/{Decals,Audio,Animations,Meshes,Sky}/`
-- **Enhanced memory_reader.hpp**: Debug logging, multiple traversal methods (DataModel children + Workspace), batch child reading, asset reference collection
+- **Enhanced memory_reader.hpp**: Debug logging, multiple traversal methods
 - **Better RBXLX generation**: Full CFrame rotation, color, material
 - **Debug mode**: `--debug` flag for verbose diagnostics
 - **Asset manifest**: Text file listing all discovered assets
-- **Updated website**: New feature descriptions, extraction options in download modal, updated How It Works
+
+### v1.3.0 (2026-03-16)
+- **Fixed children traversal**: Confirmed Method B (ptr-to-vector) working
+- **Major breakthrough**: Successfully extracting 75k+ instances from Roblox
+- **Fixed CFrame reading**: Column-major to row-major conversion
+- **Fixed Workspace filtering**: Only visual parts in RBXLX export
+
+### v1.4.0 (2026-01-28) — Current
+- **Fixed path duplication bug**: Output no longer creates `Downloads/Game/Downloads/Game` — uses exe directory as base instead of CWD
+- **Authenticated CDN downloads**: Supports `.ROBLOSECURITY` cookie (required since April 2025)
+- **New OpenCloud API endpoint**: Uses `apis.roblox.com/asset-delivery-api` + legacy fallback
+- **Retry logic**: Automatic retry on failed downloads with 500ms delay
+- **CDN redirect handling**: Follows JSON location responses to actual CDN URLs
+- **Better file detection**: Recognizes GIF, WebP, JSON formats
+- **Cookie support**: `cookie.txt` file or `--cookie` command-line flag
+- **Updated website**: v1.4.0 across all frontend, backend, and build references
+- **GitHub release**: v1.4.0 tag pushed, build in progress
 
 ## Prioritized Backlog
 
-### P0 (Critical)
-- **User must test v1.1.0**: The core memory traversal needs validation. Current issue: previous version only found 1 instance. New version has multiple traversal methods and debug logging.
-- **Make GitHub repo public**: Download links fail for public users while repo is private.
+### P0 (Critical) — DONE
+- ~~Fix path duplication bug~~ DONE in v1.4.0
+- ~~Update version to v1.4.0~~ DONE
+- ~~Push to GitHub & create release~~ DONE
+- **Make GitHub repo public**: Download links fail for public visitors while repo is private
 
 ### P1 (Important)
-- **Validate asset downloading**: Test that WinHTTP downloads work on user's Windows machine
-- **Improve DataModel reconstruction**: If traversal still gets few instances, investigate offsets or add memory scanning
-- **Add more property reading**: Scripts, LocalScripts, Humanoid properties
+- **Validate authenticated downloads**: Test that cookie-based CDN downloads work on user's Windows machine
+- **Auto-cookie extraction**: Read .ROBLOSECURITY from browser cookies or registry automatically
+- **Improve DataModel reconstruction**: If traversal still gets few instances, investigate offsets
 
 ### P2 (Nice to Have)
-- **Kernel driver signing**: Currently requires test signing mode. Production needs proper code signing certificate.
+- **Kernel driver signing**: Currently requires test signing mode. Production needs proper code signing certificate
 - **Auto-offset updates**: Fetch latest offsets from NtReadVirtualMemory repo on startup
 - **Progress bar**: Show download progress percentage for assets
 - **Game name resolution**: Use Roblox API to get game name from PlaceId for folder naming
+- **Advanced asset categorization**: AI/rule-based sorting of assets (VFX, faces, props, etc.)
 
 ## Next Tasks
-1. User tests v1.1.0 with `--debug` flag and reports console output
-2. Based on output, fix any remaining traversal issues
-3. User makes GitHub repo public
-4. Implement deeper DataModel parsing if needed (scripts, GUI elements, etc.)
+1. User tests v1.4.0 — especially authenticated CDN downloads with cookie.txt
+2. Make GitHub repo public so download links work for visitors
+3. Consider auto-cookie extraction from browser
+4. Based on feedback, fix any remaining issues
 
 ## 3rd Party Integrations
 - **GitHub API**: Push code, create tags/releases via PAT
-- **Roblox CDN**: `assetdelivery.roblox.com` for downloading assets by ID
+- **Roblox CDN**: `apis.roblox.com/asset-delivery-api` + `assetdelivery.roblox.com` for downloading assets
 - **NtReadVirtualMemory/Roblox-Offsets-Website**: Source for current Roblox memory offsets
 
 ## Credentials
 - GitHub PAT: `github_pat_11B5VECTI0...` (stored in git remote)
 
 ## Testing Status
-- Website: All tests passed (100% backend + frontend)
-- C++ Tool: Cannot test in Linux environment - requires user testing on Windows
+- Website: All tests passed (100% backend + frontend) — iteration 4
+- C++ Tool: Cannot test in Linux environment — requires user testing on Windows
