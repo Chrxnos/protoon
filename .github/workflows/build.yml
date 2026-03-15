@@ -25,7 +25,7 @@ jobs:
       run: |
         cd backend\protoon_kernel
         mkdir build
-        cl /EHsc /std:c++17 /O2 /W4 /D "UNICODE" /D "_UNICODE" /Fe"build\Protoon.exe" main.cpp /link /SUBSYSTEM:CONSOLE
+        cl /EHsc /std:c++17 /O2 /W4 /D "UNICODE" /D "_UNICODE" /D "WIN32_LEAN_AND_MEAN" /Fe"build\Protoon.exe" main.cpp /link /SUBSYSTEM:CONSOLE winhttp.lib shell32.lib
     
     - name: Upload App Artifact
       uses: actions/upload-artifact@v4
@@ -61,7 +61,7 @@ jobs:
       run: |
         echo @echo off > release\install.bat
         echo echo ======================================== >> release\install.bat
-        echo echo    Protoon Installer >> release\install.bat
+        echo echo    Protoon v1.1.0 Installer >> release\install.bat
         echo echo ======================================== >> release\install.bat
         echo net session ^>nul 2^>^&1 >> release\install.bat
         echo if %%errorLevel%% neq 0 ( >> release\install.bat
@@ -74,7 +74,9 @@ jobs:
         echo copy /Y "%%~dp0README.md" "C:\Protoon\" >> release\install.bat
         echo echo. >> release\install.bat
         echo echo Installed to C:\Protoon\ >> release\install.bat
+        echo echo. >> release\install.bat
         echo echo Run: C:\Protoon\Protoon.exe >> release\install.bat
+        echo echo Debug: C:\Protoon\Protoon.exe --debug >> release\install.bat
         echo pause >> release\install.bat
     
     - name: Create Uninstall Script  
@@ -96,13 +98,13 @@ jobs:
     - name: Create ZIP Package
       shell: powershell
       run: |
-        Compress-Archive -Path "release\*" -DestinationPath "Protoon-v1.0.0-win64.zip"
+        Compress-Archive -Path "release\*" -DestinationPath "Protoon-v1.1.0-win64.zip"
     
     - name: Upload Release Package
       uses: actions/upload-artifact@v4
       with:
         name: protoon-release
-        path: Protoon-v1.0.0-win64.zip
+        path: Protoon-v1.1.0-win64.zip
 
   create-release:
     name: Create GitHub Release
@@ -121,18 +123,43 @@ jobs:
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
-        files: Protoon-v1.0.0-win64.zip
+        files: Protoon-v1.1.0-win64.zip
         body: |
-          ## Protoon v1.0.0
+          ## Protoon v1.1.0 - Asset & Map Extraction
           
-          Kernel-level Roblox map extractor that operates beneath Hyperion anti-cheat.
+          Major update: Fleasion-style asset extraction + improved map saving.
+          
+          ### New Features
+          - **Interactive extraction menu** - Choose what to extract (Fleasion-style options)
+          - **Asset downloading** - Downloads images, audio, animations, meshes from Roblox CDN
+          - **Organized Downloads folder** - `Downloads/Game_PlaceID/` with category subfolders
+          - **Debug mode** - Run with `--debug` for detailed diagnostic output
+          - **Better instance traversal** - Multiple methods to walk the game tree
+          - **Asset manifest** - Text file listing all discovered assets
+          
+          ### Extraction Options
+          1. Map only (.rbxlx)
+          2. Decals / Images
+          3. Audio / Sounds
+          4. Animations
+          5. Meshes (MeshPart textures)
+          6. Sky Textures
+          7. All Assets (no map)
+          8. Everything (map + all assets)
           
           ### Quick Start
           1. Download and extract the ZIP
           2. Run `install.bat` as Administrator  
-          3. Join a Roblox game
+          3. Join a Roblox game and wait for it to load
           4. Run `C:\Protoon\Protoon.exe`
-          5. Open the `.rbxlx` in Roblox Studio
+          5. Choose extraction options
+          6. Check the `Downloads/` folder for output
+          
+          ### Troubleshooting
+          - Run with `--debug` flag for verbose output
+          - Make sure you're **inside a game** (not the menu/lobby)
+          - Wait for the game to **fully load** before running
+          - Run as **Administrator**
           
           ### For Kernel Driver (Undetected Mode)
           Build `driver.c` with Visual Studio + WDK - see BUILD_DRIVER.md
