@@ -60,7 +60,14 @@ Build "Protoon" - a Roblox asset & map extraction tool combining Fleasion (HTTP 
 - **Fixed CFrame reading**: Column-major to row-major conversion
 - **Fixed Workspace filtering**: Only visual parts in RBXLX export
 
-### v1.4.2 (2026-01-28) — Current
+### v1.4.3 (2026-01-28) — Current
+- **Fixed NaN colors on MeshParts** — Color offset 0x194 was producing NaN values (detected -nan in Green channel of 5490 MeshParts = 93% of visual items). Added strict NaN/range validation with grey fallback.
+- **Sanitized ALL float values** in RBXLX output — CFrame, Size, Color, Transparency all go through NaN/inf/garbage detection.
+- **Cleaned up RBXLX** — Removed ~5000 non-visual items (Weld, Attachment, Motor6D, SurfaceAppearance, PointLight, etc.) that had empty properties.
+- **Added Name property to all items** — Folders/Models now have names written (falls back to className).
+- **Improved Size validation** — Detects denormalized floats (3.6e-43 = garbage from wrong offset) as invalid.
+
+### v1.4.2 (2026-01-28)
 - **CRITICAL: Fixed CFrame row-major layout** — Roblox stores CFrame as ROW-MAJOR `[R00,R01,R02,R10,R11,R12,R20,R21,R22,X,Y,Z]`. We were reading position from column-major indices [3,7,11] instead of [9,10,11]. This placed all parts at rotation-matrix values (-1 to 1) instead of their real world coordinates. **This is why the map appeared empty in Roblox Studio.**
 - **Fixed rotation transpose** — Removed the column-to-row conversion since data was already row-major.
 - **Added CFrame validation** — Degenerate rotation matrices (all zeros) fall back to identity. NaN values detected and replaced.
