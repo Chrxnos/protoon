@@ -48,8 +48,19 @@ const DownloadModal = ({ isOpen, onClose, downloadInfo }) => {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" onClick={e => e.stopPropagation()} data-testid="download-modal">
         <button className="modal-close" onClick={onClose}><X size={24} /></button>
-        <h2>Download Protoon</h2>
-        <p className="modal-subtitle">Kernel-Level Roblox Map Extractor</p>
+        <h2>Download Protoon v1.1.0</h2>
+        <p className="modal-subtitle">Roblox Asset & Map Extraction Suite</p>
+        
+        {downloadInfo.extraction_options && (
+          <div className="modal-section">
+            <h4>Extraction Options:</h4>
+            <ul className="extraction-options-list">
+              {downloadInfo.extraction_options.map((opt, i) => (
+                <li key={i}>{opt}</li>
+              ))}
+            </ul>
+          </div>
+        )}
         
         <div className="modal-section">
           <h4>Package Contents:</h4>
@@ -61,18 +72,9 @@ const DownloadModal = ({ isOpen, onClose, downloadInfo }) => {
         </div>
         
         <div className="modal-section">
-          <h4>Installation:</h4>
+          <h4>Quick Start:</h4>
           <ol>
             {downloadInfo.installation?.map((step, i) => (
-              <li key={i}>{step}</li>
-            ))}
-          </ol>
-        </div>
-        
-        <div className="modal-section">
-          <h4>Usage:</h4>
-          <ol>
-            {downloadInfo.usage?.map((step, i) => (
               <li key={i}>{step}</li>
             ))}
           </ol>
@@ -101,7 +103,7 @@ const DownloadModal = ({ isOpen, onClose, downloadInfo }) => {
         </div>
         
         <p className="modal-note">
-          Requires Windows 10/11 x64 with Administrator privileges
+          Requires Windows 10/11 x64 with Administrator privileges + Internet for asset downloads
         </p>
       </div>
     </div>
@@ -337,32 +339,32 @@ synsaveinstance(Options)`;
           <FeatureCard
             icon={Box}
             title="Asset Extraction"
-            description="Intercept and extract textures, audio, meshes, animations, and other assets from any Roblox game in real-time."
+            description="Download decals, images, audio, animations, meshes, and sky textures directly from any Roblox game - Fleasion-style scrape options."
           />
           <FeatureCard
             icon={Layers}
-            title="Map Saving"
-            description="Kernel-level memory reading extracts full DataModel. Get part positions, sizes, materials - everything needed to rebuild maps."
+            title="Full Map Saving"
+            description="Extracts complete DataModel tree with positions, rotations, sizes, materials, and colors. Exports to .rbxlx for Roblox Studio."
           />
           <FeatureCard
             icon={Cpu}
-            title="Beneath Hyperion"
-            description="Kernel driver operates at ring 0, below Hyperion's user-mode detection. Undetected memory access."
+            title="Organized Downloads"
+            description="Each game gets its own folder with categorized subfolders: Decals, Audio, Animations, Meshes, Sky, plus an asset manifest."
           />
           <FeatureCard
             icon={Zap}
-            title="Current Offsets"
-            description="Auto-updated offsets from community research. Works with latest Roblox version (version-b130242ed064436f)."
+            title="CDN Downloading"
+            description="Discovers asset IDs from memory, then downloads full-quality files directly from Roblox's CDN servers."
           />
           <FeatureCard
             icon={Shield}
             title="No Executor Needed"
-            description="Unlike USSI, Protoon doesn't require a Roblox executor. Pure external memory reading."
+            description="Unlike USSI, Protoon doesn't require a Roblox executor. External memory reading + HTTP downloads."
           />
           <FeatureCard
             icon={Terminal}
-            title="Open Source"
-            description="Full source code available. Kernel driver, memory reader, and RBXLX exporter included."
+            title="Debug Mode"
+            description="Run with --debug for detailed diagnostics. Logs every memory read, shows instance tree traversal, and reports success rates."
           />
         </div>
         <TechniqueSection />
@@ -405,23 +407,23 @@ synsaveinstance(Options)`;
         <div className="steps">
           <div className="step">
             <div className="step-number">1</div>
-            <h3>Install Driver</h3>
-            <p>Enable test signing, install kernel driver with sc create</p>
+            <h3>Install</h3>
+            <p>Extract ZIP, run install.bat as Administrator</p>
           </div>
           <div className="step">
             <div className="step-number">2</div>
             <h3>Join Game</h3>
-            <p>Launch Roblox and join any game you want to extract</p>
+            <p>Launch Roblox, join any game, wait for it to fully load</p>
           </div>
           <div className="step">
             <div className="step-number">3</div>
-            <h3>Run Protoon</h3>
-            <p>Execute Protoon.exe as Administrator</p>
+            <h3>Choose Options</h3>
+            <p>Run Protoon.exe, select what to extract: map, assets, or everything</p>
           </div>
           <div className="step">
             <div className="step-number">4</div>
-            <h3>Export</h3>
-            <p>Map automatically extracted to .rbxlx file</p>
+            <h3>Get Assets</h3>
+            <p>Assets auto-download to organized folders. Map exported as .rbxlx</p>
           </div>
         </div>
       </section>

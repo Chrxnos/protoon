@@ -25,7 +25,7 @@ jobs:
       run: |
         cd backend\protoon_kernel
         mkdir build
-        cl /EHsc /std:c++17 /O2 /W4 /D "UNICODE" /D "_UNICODE" /D "WIN32_LEAN_AND_MEAN" /Fe"build\Protoon.exe" main.cpp /link /SUBSYSTEM:CONSOLE winhttp.lib shell32.lib
+        cl /EHsc /std:c++17 /O2 /W4 /D "UNICODE" /D "_UNICODE" /Fe"build\Protoon.exe" main.cpp /link /SUBSYSTEM:CONSOLE winhttp.lib shell32.lib
     
     - name: Upload App Artifact
       uses: actions/upload-artifact@v4

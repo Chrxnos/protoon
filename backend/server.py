@@ -77,16 +77,16 @@ async def get_tools():
     return [
         ToolInfo(
             name="Protoon",
-            version="1.0.0",
-            description="Kernel-level Roblox map extractor. Reads game memory beneath Hyperion anti-cheat using kernel driver. Extracts DataModel instances and exports to .rbxlx for Roblox Studio.",
+            version="1.1.0",
+            description="Kernel-level Roblox asset & map extractor. Fleasion-style scrape options: extract decals, audio, animations, meshes, sky textures + full map saving. Downloads organized by game into categorized folders.",
             download_url="/api/download/protoon",
-            size="~500 KB",
+            size="~600 KB",
             platform="Windows x64 (Kernel Driver)"
         ),
         ToolInfo(
             name="Fleasion",
             version="Latest",
-            description="HTTP proxy-based asset extraction tool. Intercepts Roblox HTTP traffic to capture and replace textures, audio, meshes, and animations.",
+            description="HTTP proxy-based asset extraction tool. Intercepts Roblox HTTP traffic to capture and replace textures, audio, meshes, and animations in real-time.",
             download_url="https://github.com/qrhrqiohj/Fleasion/releases",
             size="~10 MB",
             platform="Windows x64"
@@ -262,42 +262,46 @@ print("Download full script from: https://raw.githubusercontent.com/luau/Univers
 async def download_protoon():
     """Get Protoon download info and links"""
     return JSONResponse(content={
-        "message": "Protoon - Kernel-Level Roblox Map Extractor",
-        "version": "1.0.0",
-        "download_url": "https://github.com/Chrxnos/protoon/releases/latest/download/Protoon-v1.0.0-win64.zip",
+        "message": "Protoon - Roblox Asset & Map Extraction Tool",
+        "version": "1.1.0",
+        "download_url": "https://github.com/Chrxnos/protoon/releases/latest/download/Protoon-v1.1.0-win64.zip",
         "github_releases": "https://github.com/Chrxnos/protoon/releases",
-        "approach": "Kernel-level memory reading beneath Hyperion anti-cheat",
+        "approach": "Kernel-level memory reading + Roblox CDN asset downloading",
         "package_contents": [
-            "ProtoonDriver.sys - Kernel driver",
-            "Protoon.exe - Map extractor application", 
+            "Protoon.exe - Asset & map extractor with interactive menu",
             "install.bat - One-click installer",
             "uninstall.bat - Clean uninstaller",
+            "driver.c - Kernel driver source (for undetected mode)",
             "README.md - Full documentation"
         ],
+        "extraction_options": [
+            "Map only (.rbxlx)",
+            "Decals / Images",
+            "Audio / Sounds",
+            "Animations",
+            "Meshes (MeshPart textures)",
+            "Sky Textures",
+            "All Assets (no map)",
+            "Everything (map + all assets)"
+        ],
         "installation": [
-            "1. Download Protoon-v1.0.0-win64.zip",
-            "2. Extract to any folder",
-            "3. Right-click install.bat → Run as Administrator",
-            "4. If prompted, enable test signing and reboot",
-            "5. Run install.bat again after reboot"
+            "Download and extract the ZIP",
+            "Right-click install.bat -> Run as Administrator",
+            "Join a Roblox game and wait for it to load",
+            "Run C:\\Protoon\\Protoon.exe as Administrator",
+            "Choose extraction options from the menu"
         ],
         "usage": [
-            "1. Join a Roblox game",
-            "2. Open Command Prompt as Admin",
-            "3. Run: C:\\Protoon\\Protoon.exe",
-            "4. Open extracted_map.rbxlx in Roblox Studio"
+            "Join a Roblox game",
+            "Wait for the game to fully load",
+            "Run Protoon.exe as Administrator",
+            "Choose what to extract (1-8)",
+            "Check the Downloads/ folder for output"
         ],
         "requirements": [
             "Windows 10/11 x64",
             "Administrator privileges",
-            "Test signing mode (installer enables this)"
-        ],
-        "how_it_works": [
-            "Kernel driver operates beneath Hyperion (Byfron) anti-cheat",
-            "Reads Roblox process memory directly via kernel APIs",
-            "Uses current offsets from NtReadVirtualMemory/Roblox-Offsets-Website",
-            "Extracts DataModel instances including positions, sizes, materials",
-            "Exports to standard .rbxlx format for Roblox Studio"
+            "Internet connection (for asset downloading)"
         ],
         "offsets_source": "https://github.com/NtReadVirtualMemory/Roblox-Offsets-Website",
         "current_roblox_version": "version-b130242ed064436f"

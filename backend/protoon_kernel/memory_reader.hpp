@@ -14,6 +14,7 @@
 
 #pragma once
 #include <Windows.h>
+#include <winioctl.h>
 #include <TlHelp32.h>
 #include <string>
 #include <vector>
