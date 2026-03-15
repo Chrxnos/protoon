@@ -9,7 +9,7 @@ import time
 from datetime import datetime
 
 class ProtoonAPITester:
-    def __init__(self, base_url="https://modify-6.preview.emergentagent.com"):
+    def __init__(self, base_url="https://9d767ae1-d298-4f91-b99d-9f4db166f473.preview.emergentagent.com"):
         self.base_url = base_url
         self.api_base = f"{base_url}/api"
         self.tests_run = 0
@@ -200,8 +200,11 @@ class ProtoonAPITester:
             return (
                 isinstance(data, dict) and
                 'message' in data and
-                'instructions' in data and
-                isinstance(data['instructions'], list)
+                'version' in data and
+                data['version'] == '1.1.0' and
+                'extraction_options' in data and
+                isinstance(data['extraction_options'], list) and
+                len(data['extraction_options']) > 0
             )
         
         return self.run_test(
