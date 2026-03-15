@@ -61,7 +61,7 @@ jobs:
       run: |
         echo @echo off > release\install.bat
         echo echo ======================================== >> release\install.bat
-        echo echo    Protoon v1.5.0 Installer >> release\install.bat
+        echo echo    Protoon v1.5.1 Installer >> release\install.bat
         echo echo ======================================== >> release\install.bat
         echo net session ^>nul 2^>^&1 >> release\install.bat
         echo if %%errorLevel%% neq 0 ( >> release\install.bat
@@ -98,13 +98,13 @@ jobs:
     - name: Create ZIP Package
       shell: powershell
       run: |
-        Compress-Archive -Path "release\*" -DestinationPath "Protoon-v1.5.0-win64.zip"
+        Compress-Archive -Path "release\*" -DestinationPath "Protoon-v1.5.1-win64.zip"
     
     - name: Upload Release Package
       uses: actions/upload-artifact@v4
       with:
         name: protoon-release
-        path: Protoon-v1.5.0-win64.zip
+        path: Protoon-v1.5.1-win64.zip
 
   create-release:
     name: Create GitHub Release
@@ -123,24 +123,25 @@ jobs:
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
-        files: Protoon-v1.5.0-win64.zip
+        files: Protoon-v1.5.1-win64.zip
         body: |
-          ## Protoon v1.5.0 - 1:1 Map Copy
+          ## Protoon v1.5.1 - RBXLX Serialization Fix
           
-          **Major update**: MeshParts now include their actual 3D geometry (MeshId) and textures (TextureID). Maps should now look like the actual game in Roblox Studio.
+          **Critical fix**: Completely rewrote the `.rbxlx` XML serialization to match Roblox Studio's expected format. Maps should now load correctly with visible parts.
           
-          ### New Features
-          - **MeshId extraction** — MeshParts now include their 3D mesh geometry asset. Auto-scans memory to find the MeshId offset (not in community offsets).
-          - **TextureID extraction** — MeshParts include their surface texture for proper appearance.
-          - **Auto-scanning Size offset** — If the known Size offset returns garbage, scans alternative offsets to find the correct one. Caches the result for all subsequent parts.
-          - **Cleaned RBXLX** — Removed non-visual items (Weld, Attachment, Motor6D, SurfaceAppearance, Humanoid, PointLight, Sound, etc.) that had no properties and cluttered the file.
+          ### Bug Fixes
+          - **Material tokens fixed** — Material property now writes correct integer enum values (e.g., `256` for Plastic) instead of string names that Roblox couldn't parse
+          - **Color3uint8 format** — Part colors now use the packed `Color3uint8` format (`0xFFRRGGBB`) matching how Roblox Studio saves files
+          - **Locale-independent floats** — All float values now always use '.' as decimal separator, fixing invisible parts on non-English Windows systems
+          - **Force-anchored parts** — All extracted parts are set to Anchored=true to prevent them from falling on load
+          - **Clean XML header** — Removed unnecessary XML attributes and `<External>` tags that could cause parse issues
+          - **Visual elements preserved** — Decal, Texture, SpecialMesh, Attachment, lights, and particle effects are no longer skipped
           
-          ### Bug Fixes (from v1.4.x)
-          - Fixed NaN colors on MeshParts (93% of parts had -nan in color values)
-          - Fixed CFrame row-major layout (parts now at correct world positions)
-          - Fixed path duplication (Downloads/Game/Downloads/Game)
-          - Fixed Terrain error in Studio
-          - All float values sanitized (NaN/inf replaced with safe defaults)
+          ### What Changed (Technical)
+          - `<token name="Material">Plastic</token>` → `<token name="Material">256</token>` (integer enum value)
+          - `<Color3 name="Color"><R>0.63</R>...</Color3>` → `<Color3uint8 name="Color3uint8">4288714675</Color3uint8>` (packed uint32)
+          - `<roblox xmlns:xmime=... version="4">` → `<roblox version="4">` (minimal header)
+          - All float values are now locale-safe (no commas as decimal separators)
           
           ### Debug Mode
           Run with `--debug` to see:
@@ -148,16 +149,6 @@ jobs:
           - Auto-detected offset addresses for MeshId and PartSize
           
           Use: `Protoon.exe --debug` from Command Prompt as Administrator
-          
-          ### Extraction Options
-          1. Map only (.rbxlx)
-          2. Decals / Images
-          3. Audio / Sounds
-          4. Animations
-          5. Meshes (MeshPart textures)
-          6. Sky Textures
-          7. All Assets (no map)
-          8. Everything (map + all assets)
           
           ### Quick Start
           1. Download and extract the ZIP
@@ -173,9 +164,6 @@ jobs:
           - Make sure you're **inside a game** (not the menu/lobby)
           - Wait for the game to **fully load** before running
           - Run as **Administrator**
-          - For download failures: add `cookie.txt` with your Roblox session cookie
-          
-          ### For Kernel Driver (Undetected Mode)
-          Build `driver.c` with Visual Studio + WDK - see BUILD_DRIVER.md
+          - If parts still invisible: share the --debug output so we can check CFrame/Size values
         draft: false
         prerelease: false

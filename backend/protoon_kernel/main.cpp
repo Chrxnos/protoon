@@ -1,5 +1,5 @@
 /*
- * Protoon v1.5.0 - Roblox Asset & Map Extraction Tool
+ * Protoon v1.5.1 - Roblox Asset & Map Extraction Tool
  * 
  * Features:
  *   - Full game instance tree extraction (75k+ instances)
@@ -11,6 +11,14 @@
  *   - Kernel driver for undetected mode (optional)
  *   - Debug mode for troubleshooting
  *   - Retry logic + progress tracking for downloads
+ *
+ * v1.5.1 Changes:
+ *   - Fixed RBXLX serialization to match Roblox Studio's expected format
+ *   - Material properties now use correct integer enum tokens
+ *   - Color3uint8 packed integer format for part colors
+ *   - Locale-independent float formatting (fixes comma vs dot decimal)
+ *   - All extracted parts force-anchored to prevent falling
+ *   - Clean XML header matching Roblox's own format
  */
 
 #include <iostream>
@@ -180,22 +188,66 @@ std::string LoadCookie(const fs::path& exeDir) {
 }
 
 // ============================================================
-// Material name lookup
+// Material enum value lookup (returns Roblox Enum.Material integer)
+// Source: https://roblox.fandom.com/wiki/Material#Enum_Values
 // ============================================================
-const char* GetMaterialName(uint8_t material) {
+int GetMaterialEnum(uint8_t material) {
     switch (material) {
-        case 0: return "Plastic";
-        case 1: return "SmoothPlastic"; case 2: return "Wood"; case 3: return "WoodPlanks";
-        case 4: return "Marble"; case 5: return "Slate"; case 6: return "Concrete";
-        case 7: return "Granite"; case 8: return "Brick"; case 9: return "Pebble";
-        case 10: return "Cobblestone"; case 11: return "Rock"; case 12: return "Sandstone";
-        case 13: return "Basalt"; case 14: return "CrackedLava"; case 15: return "Glacier";
-        case 16: return "Snow"; case 17: return "Ice"; case 18: return "Glass";
-        case 19: return "Metal"; case 20: return "CorrodedMetal"; case 21: return "DiamondPlate";
-        case 22: return "Foil"; case 23: return "Grass"; case 24: return "LeafyGrass";
-        case 25: return "Sand"; case 26: return "Fabric"; case 27: return "Neon";
-        case 28: return "ForceField"; default: return "Plastic";
+        case 0: return 256;   // Plastic
+        case 1: return 272;   // SmoothPlastic
+        case 2: return 512;   // Wood
+        case 3: return 528;   // WoodPlanks
+        case 4: return 784;   // Marble
+        case 5: return 800;   // Slate
+        case 6: return 816;   // Concrete
+        case 7: return 832;   // Granite
+        case 8: return 848;   // Brick
+        case 9: return 864;   // Pebble
+        case 10: return 880;  // Cobblestone
+        case 11: return 896;  // Rock
+        case 12: return 912;  // Sandstone
+        case 13: return 788;  // Basalt
+        case 14: return 804;  // CrackedLava
+        case 15: return 1552; // Glacier
+        case 16: return 1328; // Snow
+        case 17: return 1536; // Ice
+        case 18: return 1568; // Glass
+        case 19: return 1088; // Metal
+        case 20: return 1040; // CorrodedMetal
+        case 21: return 1056; // DiamondPlate
+        case 22: return 1072; // Foil
+        case 23: return 1280; // Grass
+        case 24: return 1284; // LeafyGrass
+        case 25: return 1296; // Sand
+        case 26: return 1312; // Fabric
+        case 27: return 288;  // Neon
+        case 28: return 1584; // ForceField
+        default: return 256;  // Default: Plastic
     }
+}
+
+// Pack RGB floats (0-1) into Color3uint8 format (0xFFRRGGBB)
+uint32_t PackColor3uint8(float r, float g, float b) {
+    uint32_t ri = (uint32_t)(r * 255.0f + 0.5f);
+    uint32_t gi = (uint32_t)(g * 255.0f + 0.5f);
+    uint32_t bi = (uint32_t)(b * 255.0f + 0.5f);
+    if (ri > 255) ri = 255;
+    if (gi > 255) gi = 255;
+    if (bi > 255) bi = 255;
+    return 0xFF000000u | (ri << 16) | (gi << 8) | bi;
+}
+
+// Locale-safe float to string (always uses '.' as decimal separator)
+std::string ftos(float v) {
+    char buf[64];
+    // %g trims trailing zeros; always C locale with snprintf
+    int n = snprintf(buf, sizeof(buf), "%.6g", v);
+    if (n <= 0 || n >= (int)sizeof(buf)) return "0";
+    // Safety: force '.' decimal on all locales
+    for (int i = 0; i < n; i++) {
+        if (buf[i] == ',') buf[i] = '.';
+    }
+    return std::string(buf, n);
 }
 
 // ============================================================
@@ -411,15 +463,24 @@ save_file:
 }
 
 // ============================================================
-// RBXLX Generation - Workspace-only with visual filtering
+// RBXLX Generation — Format matching UniversalSynSaveInstance
+// Reference: https://github.com/luau/UniversalSynSaveInstance
+//
+// Key format rules (from USSI analysis):
+//   - <token> values are integer enum values, NOT string names
+//   - Color uses <Color3uint8> with packed 0xFFRRGGBB uint32
+//   - CFrame written as <CoordinateFrame> with <X><Y><Z> + <R00>...<R22>
+//   - Size written as <Vector3 name="size"> (lowercase 'size')
+//   - Content (MeshId/TextureID) as <Content><url>...</url></Content>
+//   - All floats locale-independent (always '.' decimal)
 // ============================================================
 std::string GenerateRBXLX(const std::vector<MemoryInstance>& instances) {
     std::ostringstream xml;
+    // Force C locale for consistent float formatting (fixes comma decimals)
+    xml.imbue(std::locale::classic());
     
-    xml << R"(<?xml version="1.0" encoding="utf-8"?>)" << "\n";
-    xml << R"(<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">)" << "\n";
-    xml << "  <External>null</External>\n";
-    xml << "  <External>nil</External>\n";
+    // Minimal header matching USSI/Roblox format
+    xml << "<roblox version=\"4\">\n";
     
     // Build lookup maps
     std::unordered_map<uintptr_t, std::vector<const MemoryInstance*>> childrenMap;
@@ -444,9 +505,9 @@ std::string GenerateRBXLX(const std::vector<MemoryInstance>& instances) {
         return xml.str();
     }
     
-    // Classes to SKIP in the RBXLX (non-visual or singleton services that cause errors)
+    // Classes to SKIP (non-visual singletons, scripts, UI that cause errors)
     static const std::set<std::string> skipClasses = {
-        "Terrain",  // Workspace already has Terrain — adding another causes load error
+        "Terrain",  // Workspace already has Terrain — duplicate causes load error
         "ModuleScript", "LocalScript", "Script",
         "RemoteEvent", "RemoteFunction", "BindableEvent", "BindableFunction",
         "ImageLabel", "ImageButton", "TextLabel", "TextButton", "TextBox",
@@ -459,12 +520,8 @@ std::string GenerateRBXLX(const std::vector<MemoryInstance>& instances) {
         "ObjectValue", "CFrameValue", "Color3Value", "Vector3Value",
         "BrickColorValue", "RayValue",
         "Configuration", "Camera",
-        // Non-visual items that clutter RBXLX with empty properties
         "Weld", "WeldConstraint", "Motor6D", "ManualWeld",
-        "Attachment", "Bone",
-        "SurfaceAppearance", "MaterialVariant",
         "Animator", "AnimationController",
-        "SpecialMesh",  // MeshPart handles its own mesh
         "ClickDetector", "ProximityPrompt",
         "Humanoid", "HumanoidDescription",
         "BodyGyro", "BodyVelocity", "BodyPosition", "BodyForce",
@@ -472,13 +529,10 @@ std::string GenerateRBXLX(const std::vector<MemoryInstance>& instances) {
         "BallSocketConstraint", "HingeConstraint", "RopeConstraint",
         "SpringConstraint", "CylindricalConstraint", "PrismaticConstraint",
         "RodConstraint", "LineForce", "Torque", "VectorForce",
-        "ParticleEmitter", "Trail", "Beam",
-        "PointLight", "SpotLight", "SurfaceLight",
-        "Fire", "Smoke", "Sparkles", "Explosion",
         "Sound", "SoundGroup",
         "Accessory", "Shirt", "Pants", "ShirtGraphic", "CharacterMesh",
         "Tool", "Backpack", "StarterPack",
-        "TerrainRegion", "Decal", "Texture"
+        "TerrainRegion"
     };
     
     // Part-like classes that get CFrame/Size/Color properties
@@ -487,14 +541,14 @@ std::string GenerateRBXLX(const std::vector<MemoryInstance>& instances) {
         "CornerWedgePart", "UnionOperation", "NegateOperation", "Seat", "VehicleSeat"
     };
     
-    // Helper: sanitize float for XML (replace NaN/inf with safe value)
+    // Helper: sanitize float (replace NaN/inf with safe value)
     auto safeFloat = [](float v, float fallback = 0.0f) -> float {
         if (v != v) return fallback;         // NaN check
         if (v > 1e30f || v < -1e30f) return fallback; // inf/huge
         return v;
     };
     
-    // Recursive writer - only writes non-skipped classes
+    // Recursive writer
     int refCounter = 1;
     int writtenParts = 0;
     
@@ -508,31 +562,45 @@ std::string GenerateRBXLX(const std::vector<MemoryInstance>& instances) {
         xml << tabs << "<Item class=\"" << inst->className << "\" referent=\"" << ref << "\">\n";
         xml << tabs << "  <Properties>\n";
         
-        // Always write Name (use className as fallback if name is empty)
+        // Always write Name
         std::string displayName = inst->name.empty() ? inst->className : inst->name;
         xml << tabs << "    <string name=\"Name\">" << displayName << "</string>\n";
         
-        // Part-specific properties
+        // Part-specific properties (matching USSI/Roblox format exactly)
         if (partClasses.count(inst->className)) {
             writtenParts++;
             
-            // CFrame (all values sanitized)
+            // CFrame as CoordinateFrame (matching USSI XML_Descriptors.CFrame)
+            // Format: <CoordinateFrame name="CFrame"><X>...</X><Y>...</Y><Z>...</Z><R00>...</R00>...<R22>...</R22></CoordinateFrame>
+            float px = safeFloat(inst->position[0]);
+            float py = safeFloat(inst->position[1]);
+            float pz = safeFloat(inst->position[2]);
+            float r00 = safeFloat(inst->rotation[0], 1.0f);
+            float r01 = safeFloat(inst->rotation[1]);
+            float r02 = safeFloat(inst->rotation[2]);
+            float r10 = safeFloat(inst->rotation[3]);
+            float r11 = safeFloat(inst->rotation[4], 1.0f);
+            float r12 = safeFloat(inst->rotation[5]);
+            float r20 = safeFloat(inst->rotation[6]);
+            float r21 = safeFloat(inst->rotation[7]);
+            float r22 = safeFloat(inst->rotation[8], 1.0f);
+            
             xml << tabs << "    <CoordinateFrame name=\"CFrame\">\n";
-            xml << tabs << "      <X>" << safeFloat(inst->position[0]) << "</X>\n";
-            xml << tabs << "      <Y>" << safeFloat(inst->position[1]) << "</Y>\n";
-            xml << tabs << "      <Z>" << safeFloat(inst->position[2]) << "</Z>\n";
-            xml << tabs << "      <R00>" << safeFloat(inst->rotation[0], 1.0f) << "</R00>";
-            xml << "<R01>" << safeFloat(inst->rotation[1]) << "</R01>";
-            xml << "<R02>" << safeFloat(inst->rotation[2]) << "</R02>\n";
-            xml << tabs << "      <R10>" << safeFloat(inst->rotation[3]) << "</R10>";
-            xml << "<R11>" << safeFloat(inst->rotation[4], 1.0f) << "</R11>";
-            xml << "<R12>" << safeFloat(inst->rotation[5]) << "</R12>\n";
-            xml << tabs << "      <R20>" << safeFloat(inst->rotation[6]) << "</R20>";
-            xml << "<R21>" << safeFloat(inst->rotation[7]) << "</R21>";
-            xml << "<R22>" << safeFloat(inst->rotation[8], 1.0f) << "</R22>\n";
+            xml << tabs << "      <X>" << ftos(px) << "</X>\n";
+            xml << tabs << "      <Y>" << ftos(py) << "</Y>\n";
+            xml << tabs << "      <Z>" << ftos(pz) << "</Z>\n";
+            xml << tabs << "      <R00>" << ftos(r00) << "</R00>\n";
+            xml << tabs << "      <R01>" << ftos(r01) << "</R01>\n";
+            xml << tabs << "      <R02>" << ftos(r02) << "</R02>\n";
+            xml << tabs << "      <R10>" << ftos(r10) << "</R10>\n";
+            xml << tabs << "      <R11>" << ftos(r11) << "</R11>\n";
+            xml << tabs << "      <R12>" << ftos(r12) << "</R12>\n";
+            xml << tabs << "      <R20>" << ftos(r20) << "</R20>\n";
+            xml << tabs << "      <R21>" << ftos(r21) << "</R21>\n";
+            xml << tabs << "      <R22>" << ftos(r22) << "</R22>\n";
             xml << tabs << "    </CoordinateFrame>\n";
             
-            // Size (sanitized — must be positive)
+            // Size (lowercase 'size' is the serialized property name in Roblox)
             float sx = safeFloat(inst->size[0], 4.0f);
             float sy = safeFloat(inst->size[1], 1.2f);
             float sz = safeFloat(inst->size[2], 2.0f);
@@ -540,28 +608,37 @@ std::string GenerateRBXLX(const std::vector<MemoryInstance>& instances) {
             if (sy <= 0.001f) sy = 1.2f;
             if (sz <= 0.001f) sz = 2.0f;
             xml << tabs << "    <Vector3 name=\"size\">\n";
-            xml << tabs << "      <X>" << sx << "</X>\n";
-            xml << tabs << "      <Y>" << sy << "</Y>\n";
-            xml << tabs << "      <Z>" << sz << "</Z>\n";
+            xml << tabs << "      <X>" << ftos(sx) << "</X>\n";
+            xml << tabs << "      <Y>" << ftos(sy) << "</Y>\n";
+            xml << tabs << "      <Z>" << ftos(sz) << "</Z>\n";
             xml << tabs << "    </Vector3>\n";
             
-            xml << tabs << "    <bool name=\"Anchored\">" << (inst->anchored ? "true" : "false") << "</bool>\n";
-            xml << tabs << "    <bool name=\"CanCollide\">" << (inst->canCollide ? "true" : "false") << "</bool>\n";
-            xml << tabs << "    <float name=\"Transparency\">" << safeFloat(inst->transparency) << "</float>\n";
-            xml << tabs << "    <token name=\"Material\">" << GetMaterialName(inst->material) << "</token>\n";
+            // Anchored — FORCE TRUE so parts don't fall when loaded
+            xml << tabs << "    <bool name=\"Anchored\">true</bool>\n";
             
-            // Color (sanitized — clamp 0-1, replace NaN)
-            float cr = safeFloat(inst->color[0], 0.63f);
-            float cg = safeFloat(inst->color[1], 0.63f);
-            float cb = safeFloat(inst->color[2], 0.63f);
-            if (cr < 0 || cr > 1) cr = 0.63f;
-            if (cg < 0 || cg > 1) cg = 0.63f;
-            if (cb < 0 || cb > 1) cb = 0.63f;
-            xml << tabs << "    <Color3 name=\"Color\">\n";
-            xml << tabs << "      <R>" << cr << "</R>\n";
-            xml << tabs << "      <G>" << cg << "</G>\n";
-            xml << tabs << "      <B>" << cb << "</B>\n";
-            xml << tabs << "    </Color3>\n";
+            xml << tabs << "    <bool name=\"CanCollide\">" << (inst->canCollide ? "true" : "false") << "</bool>\n";
+            
+            // Transparency (float, 0-1)
+            float trans = safeFloat(inst->transparency);
+            if (trans < 0.0f) trans = 0.0f;
+            if (trans > 1.0f) trans = 1.0f;
+            xml << tabs << "    <float name=\"Transparency\">" << ftos(trans) << "</float>\n";
+            
+            // Material — MUST be integer enum token, NOT string name
+            // USSI: XML_Descriptors.EnumItem(raw) returns raw.Value (integer), "token"
+            int materialEnum = GetMaterialEnum(inst->material);
+            xml << tabs << "    <token name=\"Material\">" << materialEnum << "</token>\n";
+            
+            // Color3uint8 — packed as 0xFFRRGGBB integer
+            // USSI: Color3uint8 = 0xFF000000 + (floor(R*255)*0x10000) + (floor(G*255)*0x100) + floor(B*255)
+            float cr = safeFloat(inst->color[0], 0.639f);
+            float cg = safeFloat(inst->color[1], 0.635f);
+            float cb = safeFloat(inst->color[2], 0.647f);
+            if (cr < 0 || cr > 1) cr = 0.639f;
+            if (cg < 0 || cg > 1) cg = 0.639f;
+            if (cb < 0 || cb > 1) cb = 0.647f;
+            uint32_t packedColor = PackColor3uint8(cr, cg, cb);
+            xml << tabs << "    <Color3uint8 name=\"Color3uint8\">" << packedColor << "</Color3uint8>\n";
             
             // MeshPart-specific: MeshId and TextureID (critical for 1:1 geometry)
             if (inst->className == "MeshPart") {
@@ -574,9 +651,31 @@ std::string GenerateRBXLX(const std::vector<MemoryInstance>& instances) {
             }
         }
         
+        // Write properties for non-part visual items (Decal, Texture, lights, etc.)
+        if (inst->className == "Decal" || inst->className == "Texture") {
+            // These get their texture URL from assetRefs
+            for (const auto& ref : inst->assetRefs) {
+                if (!ref.rawUrl.empty()) {
+                    xml << tabs << "    <Content name=\"Texture\"><url>" << ref.rawUrl << "</url></Content>\n";
+                    break;
+                }
+            }
+        }
+        
+        if (inst->className == "SpecialMesh") {
+            // SpecialMesh gets MeshType token; default to FileMesh(5) if has asset
+            for (const auto& ref : inst->assetRefs) {
+                if (!ref.rawUrl.empty()) {
+                    xml << tabs << "    <Content name=\"MeshId\"><url>" << ref.rawUrl << "</url></Content>\n";
+                    xml << tabs << "    <token name=\"MeshType\">5</token>\n"; // FileMesh
+                    break;
+                }
+            }
+        }
+        
         xml << tabs << "  </Properties>\n";
         
-        // Write children (only non-skipped ones)
+        // Write children
         auto it = childrenMap.find(inst->address);
         if (it != childrenMap.end()) {
             for (const auto* child : it->second) {
@@ -587,7 +686,7 @@ std::string GenerateRBXLX(const std::vector<MemoryInstance>& instances) {
         xml << tabs << "</Item>\n";
     };
     
-    // Write only Workspace children (not the Workspace itself, not other services)
+    // Write Workspace children (not the Workspace itself)
     auto wsChildren = childrenMap.find(workspace->address);
     if (wsChildren != childrenMap.end()) {
         for (const auto* child : wsChildren->second) {
@@ -595,7 +694,7 @@ std::string GenerateRBXLX(const std::vector<MemoryInstance>& instances) {
         }
     }
     
-    printf("[+] RBXLX: %d visual parts written (skipped scripts/UI)\n", writtenParts);
+    printf("[+] RBXLX: %d visual parts written\n", writtenParts);
     
     xml << "</roblox>\n";
     return xml.str();
@@ -613,7 +712,7 @@ void PrintBanner() {
 |_|   |_|  \___/ \__\___/ \___/|_| |_|
                                       
     Roblox Asset & Map Extraction Tool
-    v1.5.0 - 1:1 Map Copy
+    v1.5.1 - 1:1 Map Copy
     )" << std::endl;
 }
 
