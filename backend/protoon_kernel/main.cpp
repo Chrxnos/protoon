@@ -257,7 +257,7 @@ void PrintBanner() {
 |_|   |_|  \___/ \__\___/ \___/|_| |_|
                                       
     Roblox Asset & Map Extraction Tool
-    v1.2.0 - Diagnostic Build
+    v1.3.0 - Asset & Map Extraction
     )" << std::endl;
 }
 
@@ -283,7 +283,7 @@ int main(int argc, char* argv[]) {
     PrintBanner();
     
     // Parse arguments
-    bool debugMode = true;  // DEFAULT ON for diagnostic build v1.2.0
+    bool debugMode = false;  // Off by default now (Method B confirmed working)
     std::string outputDir = "";
     
     for (int i = 1; i < argc; i++) {
@@ -324,59 +324,26 @@ int main(int argc, char* argv[]) {
     std::cout << "[*] PlaceId: " << placeId << "\n";
     std::cout << "[*] GameId: " << gameId << "\n";
     
-    // Diagnostic: dump key memory regions
+    // Diagnostic: quick check on children reading method
     if (debugMode) {
         uintptr_t dm = reader.GetDataModel();
-        uintptr_t ws = reader.Read<uintptr_t>(dm + 0x178); // Workspace ptr
+        uintptr_t ws = reader.Read<uintptr_t>(dm + 0x178);
         
-        std::cout << "\n[DIAG] === Memory Dump ===\n";
-        std::cout << "[DIAG] DataModel at: 0x" << std::hex << dm << std::dec << "\n";
-        std::cout << "[DIAG] Workspace ptr (DM+0x178): 0x" << std::hex << ws << std::dec << "\n";
+        std::cout << "\n[DEBUG] === Quick Diagnostics ===\n";
+        std::cout << "[DEBUG] DataModel: 0x" << std::hex << dm << std::dec << "\n";
+        std::cout << "[DEBUG] Workspace: 0x" << std::hex << ws << std::dec << "\n";
         
-        // Dump 128 bytes of Workspace starting from offset 0x00
         if (ws > 0x10000) {
-            std::cout << "[DIAG] Workspace name: " << reader.GetName(ws) << "\n";
-            std::cout << "[DIAG] Workspace class: " << reader.GetClassName(ws) << "\n";
-            
-            // Dump offsets 0x60-0xBF (includes Children at 0x70 and Name at 0xB0)
-            uint8_t dump[96] = {0};
-            reader.ReadMemory(ws + 0x60, dump, 96);
-            std::cout << "[DIAG] Workspace raw memory (offset 0x60-0xBF):\n";
-            for (int row = 0; row < 96; row += 16) {
-                printf("[DIAG]   +0x%02X: ", 0x60 + row);
-                for (int col = 0; col < 16; col++) {
-                    printf("%02X ", dump[row + col]);
-                    if (col == 7) printf(" ");
-                }
-                printf("\n");
-            }
-            
-            // Also dump 0x00-0x1F to see vtable and early fields
-            uint8_t dump0[32] = {0};
-            reader.ReadMemory(ws, dump0, 32);
-            std::cout << "[DIAG] Workspace raw memory (offset 0x00-0x1F):\n";
-            printf("[DIAG]   +0x00: ");
-            for (int i = 0; i < 32; i++) {
-                printf("%02X ", dump0[i]);
-                if (i == 7 || i == 15 || i == 23) printf(" ");
-            }
-            printf("\n");
+            // Check children container
+            uintptr_t containerPtr = reader.Read<uintptr_t>(ws + 0x70);
+            uintptr_t begin = reader.Read<uintptr_t>(containerPtr);
+            uintptr_t end = reader.Read<uintptr_t>(containerPtr + 8);
+            size_t count = (end > begin) ? (end - begin) / 8 : 0;
+            printf("[DEBUG] WS children: container=0x%llX begin=0x%llX end=0x%llX count=%zu\n",
+                (unsigned long long)containerPtr, (unsigned long long)begin, (unsigned long long)end, count);
         }
         
-        // Also dump DataModel memory around Children
-        uint8_t dmDump[48] = {0};
-        reader.ReadMemory(dm + 0x60, dmDump, 48);
-        std::cout << "[DIAG] DataModel raw memory (offset 0x60-0x8F):\n";
-        for (int row = 0; row < 48; row += 16) {
-            printf("[DIAG]   +0x%02X: ", 0x60 + row);
-            for (int col = 0; col < 16 && (row + col) < 48; col++) {
-                printf("%02X ", dmDump[row + col]);
-                if (col == 7) printf(" ");
-            }
-            printf("\n");
-        }
-        
-        std::cout << "[DIAG] === End Memory Dump ===\n\n";
+        std::cout << "[DEBUG] ========================\n\n";
     }
     
     // Show extraction menu (Fleasion-style scrape options)

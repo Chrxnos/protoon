@@ -442,185 +442,62 @@ public:
     }
     
     // Validate if a pointer looks like a valid Roblox Instance
+    // Quick check: try reading class name
     bool IsValidInstance(uintptr_t ptr) {
         if (ptr == 0 || ptr < 0x10000) return false;
-        // Try to read ClassDescriptor - all valid instances have one
-        uintptr_t classDesc = Read<uintptr_t>(ptr + RobloxOffsets::ClassDescriptor);
-        if (classDesc == 0 || classDesc < 0x10000) return false;
-        // Try to read the class name pointer
-        uintptr_t classNamePtr = Read<uintptr_t>(classDesc + RobloxOffsets::ClassDescriptorToClassName);
-        if (classNamePtr == 0 || classNamePtr < 0x10000) return false;
-        return true;
+        // Check if class descriptor exists and class name is readable
+        std::string cls = GetClassName(ptr);
+        return !cls.empty();
     }
     
-    // Try reading children from a raw pointer array
-    std::vector<uintptr_t> ReadChildrenFromArray(uintptr_t arrayStart, size_t count) {
+    // Get children of instance using confirmed Method B (ptr-to-vector)
+    // Layout: instance+0x70 → vector_ptr, *vector_ptr → begin, *(vector_ptr+8) → end
+    std::vector<uintptr_t> GetChildren(uintptr_t instance) {
         std::vector<uintptr_t> children;
-        if (arrayStart == 0 || count == 0 || count > 500000) return children;
         
-        // Read batch
+        // Read the container pointer at offset 0x70
+        uintptr_t containerPtr = Read<uintptr_t>(instance + RobloxOffsets::Children);
+        if (containerPtr == 0 || containerPtr < 0x10000) return children;
+        
+        // Read begin/end from the container (std::vector<Instance*> layout)
+        uintptr_t begin = Read<uintptr_t>(containerPtr);
+        uintptr_t end = Read<uintptr_t>(containerPtr + 8);
+        
+        if (begin == 0 || end == 0 || end <= begin) return children;
+        
+        // Reject if pointers are in the code section (0x7FFxxxxxxxxx range)
+        // Valid heap pointers are in a different range
+        if (begin > robloxBase && begin < (robloxBase + 0x10000000)) return children;
+        
+        size_t count = (end - begin) / sizeof(uintptr_t);
+        if (count == 0 || count > 100000) return children;
+        
+        if (debugMode && count > 0) {
+            printf("[DEBUG] GetChildren(0x%llX): container=0x%llX begin=0x%llX end=0x%llX count=%zu\n",
+                (unsigned long long)instance, (unsigned long long)containerPtr,
+                (unsigned long long)begin, (unsigned long long)end, count);
+        }
+        
+        // Read all child pointers in batch
         std::vector<uintptr_t> rawPtrs(count);
-        if (ReadMemory(arrayStart, rawPtrs.data(), count * sizeof(uintptr_t))) {
+        if (ReadMemory(begin, rawPtrs.data(), count * sizeof(uintptr_t))) {
             for (size_t i = 0; i < count; i++) {
-                if (rawPtrs[i] > 0x10000) {
-                    children.push_back(rawPtrs[i]);
+                uintptr_t childPtr = rawPtrs[i];
+                // Basic pointer validation
+                if (childPtr > 0x10000 && childPtr != containerPtr) {
+                    children.push_back(childPtr);
                 }
             }
         } else {
             // Fallback: read one by one
             for (size_t i = 0; i < count; i++) {
-                uintptr_t child = Read<uintptr_t>(arrayStart + i * sizeof(uintptr_t));
-                if (child > 0x10000) {
-                    children.push_back(child);
-                }
-            }
-        }
-        return children;
-    }
-    
-    // Get children of instance - tries multiple memory layout interpretations
-    std::vector<uintptr_t> GetChildren(uintptr_t instance) {
-        std::vector<uintptr_t> children;
-        
-        // Always print diagnostic for top-level calls
-        // Read raw 48 bytes starting at Children offset (0x70)
-        uint8_t rawBytes[48] = {0};
-        ReadMemory(instance + RobloxOffsets::Children, rawBytes, 48);
-        
-        uintptr_t vals[6];
-        memcpy(vals, rawBytes, 48);
-        
-        if (debugMode) {
-            printf("[DIAG] GetChildren(0x%llX) - raw bytes at +0x70:\n", (unsigned long long)instance);
-            printf("[DIAG]   ");
-            for (int i = 0; i < 48; i++) {
-                printf("%02X ", rawBytes[i]);
-                if (i == 7 || i == 15 || i == 23 || i == 31 || i == 39) printf("| ");
-            }
-            printf("\n[DIAG]   As ptrs: [0]=0x%llX [1]=0x%llX [2]=0x%llX [3]=0x%llX [4]=0x%llX [5]=0x%llX\n",
-                (unsigned long long)vals[0], (unsigned long long)vals[1], (unsigned long long)vals[2],
-                (unsigned long long)vals[3], (unsigned long long)vals[4], (unsigned long long)vals[5]);
-        }
-        
-        // ===== METHOD A: Embedded std::vector (begin/end at +0x70/+0x78) =====
-        {
-            uintptr_t begin = vals[0];
-            uintptr_t end = vals[1];
-            if (begin > 0x10000 && end > begin && (end - begin) < 0x1000000) {
-                size_t count = (end - begin) / sizeof(uintptr_t);
-                if (debugMode) printf("[DIAG]   Method A (embedded vector): begin=0x%llX end=0x%llX count=%zu\n",
-                    (unsigned long long)begin, (unsigned long long)end, count);
-                children = ReadChildrenFromArray(begin, count);
-                if (!children.empty()) {
-                    // Validate first child
-                    if (IsValidInstance(children[0])) {
-                        if (debugMode) printf("[DIAG]   Method A SUCCESS: %zu children\n", children.size());
-                        return children;
-                    }
-                    if (debugMode) printf("[DIAG]   Method A: children found but first is invalid instance\n");
-                    children.clear();
+                uintptr_t childPtr = Read<uintptr_t>(begin + i * sizeof(uintptr_t));
+                if (childPtr > 0x10000 && childPtr != containerPtr) {
+                    children.push_back(childPtr);
                 }
             }
         }
         
-        // ===== METHOD B: Pointer to vector (ptr at +0x70, vector at *ptr) =====
-        {
-            uintptr_t containerPtr = vals[0];
-            if (containerPtr > 0x10000) {
-                uintptr_t innerBegin = Read<uintptr_t>(containerPtr);
-                uintptr_t innerEnd = Read<uintptr_t>(containerPtr + 8);
-                if (debugMode) printf("[DIAG]   Method B (ptr-to-vector): container=0x%llX -> begin=0x%llX end=0x%llX\n",
-                    (unsigned long long)containerPtr, (unsigned long long)innerBegin, (unsigned long long)innerEnd);
-                if (innerBegin > 0x10000 && innerEnd > innerBegin && (innerEnd - innerBegin) < 0x1000000) {
-                    size_t count = (innerEnd - innerBegin) / sizeof(uintptr_t);
-                    if (debugMode) printf("[DIAG]   Method B: count=%zu\n", count);
-                    children = ReadChildrenFromArray(innerBegin, count);
-                    if (!children.empty() && IsValidInstance(children[0])) {
-                        if (debugMode) printf("[DIAG]   Method B SUCCESS: %zu children\n", children.size());
-                        return children;
-                    }
-                    children.clear();
-                }
-            }
-        }
-        
-        // ===== METHOD C: Pointer + count (ptr at +0x70, count at +0x78) =====
-        {
-            uintptr_t arrayPtr = vals[0];
-            size_t count = vals[1]; // interpret as count instead of end pointer
-            if (arrayPtr > 0x10000 && count > 0 && count < 100000) {
-                if (debugMode) printf("[DIAG]   Method C (ptr+count): array=0x%llX count=%zu\n",
-                    (unsigned long long)arrayPtr, count);
-                children = ReadChildrenFromArray(arrayPtr, count);
-                if (!children.empty() && IsValidInstance(children[0])) {
-                    if (debugMode) printf("[DIAG]   Method C SUCCESS: %zu children\n", children.size());
-                    return children;
-                }
-                children.clear();
-            }
-        }
-        
-        // ===== METHOD D: Pointer to pointer array (double deref) =====
-        {
-            uintptr_t outerPtr = vals[0];
-            if (outerPtr > 0x10000) {
-                uintptr_t innerPtr = Read<uintptr_t>(outerPtr);
-                if (innerPtr > 0x10000) {
-                    uintptr_t innerEnd = Read<uintptr_t>(outerPtr + 8);
-                    if (debugMode) printf("[DIAG]   Method D (double-deref): outer=0x%llX -> inner=0x%llX end=0x%llX\n",
-                        (unsigned long long)outerPtr, (unsigned long long)innerPtr, (unsigned long long)innerEnd);
-                    
-                    // Try inner as begin, innerEnd as end
-                    if (innerEnd > innerPtr && (innerEnd - innerPtr) < 0x1000000) {
-                        size_t count = (innerEnd - innerPtr) / sizeof(uintptr_t);
-                        children = ReadChildrenFromArray(innerPtr, count);
-                        if (!children.empty() && IsValidInstance(children[0])) {
-                            if (debugMode) printf("[DIAG]   Method D SUCCESS: %zu children\n", children.size());
-                            return children;
-                        }
-                        children.clear();
-                    }
-                    
-                    // Try inner as pointer to yet another array
-                    uintptr_t deepPtr = Read<uintptr_t>(innerPtr);
-                    uintptr_t deepEnd = Read<uintptr_t>(innerPtr + 8);
-                    if (deepPtr > 0x10000 && deepEnd > deepPtr && (deepEnd - deepPtr) < 0x1000000) {
-                        size_t count = (deepEnd - deepPtr) / sizeof(uintptr_t);
-                        if (debugMode) printf("[DIAG]   Method D deep: ptr=0x%llX end=0x%llX count=%zu\n",
-                            (unsigned long long)deepPtr, (unsigned long long)deepEnd, count);
-                        children = ReadChildrenFromArray(deepPtr, count);
-                        if (!children.empty() && IsValidInstance(children[0])) {
-                            if (debugMode) printf("[DIAG]   Method D deep SUCCESS: %zu children\n", children.size());
-                            return children;
-                        }
-                        children.clear();
-                    }
-                }
-            }
-        }
-        
-        // ===== METHOD E: Try nearby offsets (0x60-0x90) in case offset shifted =====
-        for (uintptr_t tryOffset = 0x60; tryOffset <= 0x90; tryOffset += 0x8) {
-            if (tryOffset == RobloxOffsets::Children) continue; // Already tried
-            
-            uintptr_t tryBegin = Read<uintptr_t>(instance + tryOffset);
-            uintptr_t tryEnd = Read<uintptr_t>(instance + tryOffset + 8);
-            
-            if (tryBegin > 0x10000 && tryEnd > tryBegin && (tryEnd - tryBegin) < 0x1000000) {
-                size_t count = (tryEnd - tryBegin) / sizeof(uintptr_t);
-                if (count > 0 && count < 100000) {
-                    children = ReadChildrenFromArray(tryBegin, count);
-                    if (!children.empty() && IsValidInstance(children[0])) {
-                        printf("[DIAG]   Method E SUCCESS at offset 0x%llX: %zu children\n",
-                            (unsigned long long)tryOffset, children.size());
-                        return children;
-                    }
-                    children.clear();
-                }
-            }
-        }
-        
-        if (debugMode) printf("[DIAG]   All methods failed for 0x%llX\n", (unsigned long long)instance);
         return children;
     }
     
@@ -781,7 +658,7 @@ public:
         return Read<uint8_t>(dataModel + RobloxOffsets::GameLoaded) != 0;
     }
     
-    // Recursively get all instances with progress callback
+    // Recursively get all instances with validation
     void GetAllInstances(uintptr_t instance, std::vector<MemoryInstance>& instances, 
                          std::set<uintptr_t>& visited, int depth = 0, int maxDepth = 100) {
         if (instance == 0 || instance < 0x10000 || depth > maxDepth) return;
@@ -790,23 +667,21 @@ public:
         if (visited.count(instance)) return;
         visited.insert(instance);
         
+        // Quick validation: must have a readable class name
+        std::string className = GetClassName(instance);
+        if (className.empty()) return; // Not a valid Instance object
+        
         MemoryInstance inst = ReadInstance(instance);
-        
-        // Validate - skip if we can't read basic properties
-        if (inst.className.empty() && inst.name.empty()) {
-            if (debugMode) printf("[DEBUG] Skipping invalid instance at 0x%llX\n", (unsigned long long)instance);
-            return;
-        }
-        
         instances.push_back(inst);
         
-        // Show progress for top-level items
-        if (depth <= 2 && !inst.name.empty()) {
+        // Show progress for services and top-level objects
+        if (depth <= 1 && !inst.name.empty()) {
             printf("[Protoon]   %s%s (%s) - %zu children\n", 
                 std::string(depth * 2, ' ').c_str(),
                 inst.name.c_str(), inst.className.c_str(), inst.children.size());
         }
         
+        // Recurse into children - validate each one
         for (uintptr_t child : inst.children) {
             GetAllInstances(child, instances, visited, depth + 1, maxDepth);
         }
