@@ -36,11 +36,18 @@ namespace fs = std::filesystem;
 
 // ============================================================
 // Get executable directory (fixes path duplication bug)
+// Uses wide API for full Unicode path support on Windows
 // ============================================================
 fs::path GetExeDirectory() {
-    char exePath[MAX_PATH] = {0};
-    GetModuleFileNameA(NULL, exePath, MAX_PATH);
-    return fs::path(exePath).parent_path();
+    wchar_t exePath[MAX_PATH] = {0};
+    DWORD len = GetModuleFileNameW(NULL, exePath, MAX_PATH);
+    if (len > 0 && len < MAX_PATH) {
+        fs::path p = fs::path(exePath).parent_path();
+        // Ensure it's an absolute path
+        if (p.is_absolute()) return p;
+    }
+    // Fallback: current working directory
+    return fs::current_path();
 }
 
 // ============================================================
@@ -331,8 +338,9 @@ std::string GenerateRBXLX(const std::vector<MemoryInstance>& instances) {
         return xml.str();
     }
     
-    // Classes to SKIP in the RBXLX (non-visual, cause clutter)
+    // Classes to SKIP in the RBXLX (non-visual or singleton services that cause errors)
     static const std::set<std::string> skipClasses = {
+        "Terrain",  // Workspace already has Terrain — adding another causes load error
         "ModuleScript", "LocalScript", "Script",
         "RemoteEvent", "RemoteFunction", "BindableEvent", "BindableFunction",
         "ImageLabel", "ImageButton", "TextLabel", "TextButton", "TextBox",
@@ -610,6 +618,25 @@ int main(int argc, char* argv[]) {
         }
     }
     
+    // Safety: detect and fix path duplication
+    // e.g. .../Downloads/Game_123/Downloads/Game_123 → .../Downloads/Game_123
+    {
+        std::string pathStr = baseDir.string();
+        std::string segment = "Downloads" + std::string(1, fs::path::preferred_separator) + gameFolderName;
+        size_t firstOccurrence = pathStr.find(segment);
+        if (firstOccurrence != std::string::npos) {
+            size_t secondOccurrence = pathStr.find(segment, firstOccurrence + segment.size());
+            if (secondOccurrence != std::string::npos) {
+                // Duplicated — trim to first occurrence only
+                baseDir = fs::path(pathStr.substr(0, firstOccurrence + segment.size()));
+                printf("[*] Fixed duplicated path segment\n");
+            }
+        }
+    }
+    
+    // Print resolved path for diagnostics
+    printf("[*] Exe directory: %s\n", exeDir.string().c_str());
+    
     fs::create_directories(baseDir);
     
     if (extractDecals) fs::create_directories(baseDir / "Decals");
@@ -618,7 +645,7 @@ int main(int argc, char* argv[]) {
     if (extractMeshes) fs::create_directories(baseDir / "Meshes");
     if (extractSky) fs::create_directories(baseDir / "Sky");
     
-    std::cout << "\n[*] Output directory: " << fs::absolute(baseDir).string() << "\n";
+    std::cout << "\n[*] Output directory: " << baseDir.string() << "\n";
     
     // Extract instances
     std::cout << "\n[*] Extracting game data...\n";
@@ -647,6 +674,9 @@ int main(int argc, char* argv[]) {
     int partCount = 0;
     std::vector<AssetReference> allAssets;
     
+    // Only collect asset references if user selected an asset extraction option
+    bool anyDownload = extractDecals || extractAudio || extractAnimations || extractMeshes || extractSky;
+    
     for (const auto& inst : instances) {
         classCounts[inst.className]++;
         
@@ -655,9 +685,11 @@ int main(int argc, char* argv[]) {
             partCount++;
         }
         
-        // Collect all asset references
-        for (const auto& ref : inst.assetRefs) {
-            allAssets.push_back(ref);
+        // Only collect asset references if user wants assets
+        if (anyDownload) {
+            for (const auto& ref : inst.assetRefs) {
+                allAssets.push_back(ref);
+            }
         }
     }
     
@@ -675,24 +707,26 @@ int main(int argc, char* argv[]) {
         std::cout << "    " << std::setw(25) << std::left << cls << " " << count << "\n";
     }
     
-    // Deduplicate assets
+    // Deduplicate assets (only if user requested asset extraction)
     std::set<std::string> seenAssets;
     std::map<std::string, std::vector<AssetReference>> assetsByCategory;
-    
-    for (const auto& ref : allAssets) {
-        if (seenAssets.count(ref.assetId)) continue;
-        seenAssets.insert(ref.assetId);
-        assetsByCategory[ref.category].push_back(ref);
-    }
-    
-    // Show asset summary
-    std::cout << "\n[*] Asset references found:\n";
     int totalAssets = 0;
-    for (const auto& [cat, refs] : assetsByCategory) {
-        std::cout << "    " << std::setw(15) << std::left << cat << " " << refs.size() << " unique\n";
-        totalAssets += (int)refs.size();
+    
+    if (anyDownload) {
+        for (const auto& ref : allAssets) {
+            if (seenAssets.count(ref.assetId)) continue;
+            seenAssets.insert(ref.assetId);
+            assetsByCategory[ref.category].push_back(ref);
+        }
+        
+        // Show asset summary
+        std::cout << "\n[*] Asset references found:\n";
+        for (const auto& [cat, refs] : assetsByCategory) {
+            std::cout << "    " << std::setw(15) << std::left << cat << " " << refs.size() << " unique\n";
+            totalAssets += (int)refs.size();
+        }
+        std::cout << "    " << std::setw(15) << std::left << "TOTAL" << " " << totalAssets << " unique assets\n";
     }
-    std::cout << "    " << std::setw(15) << std::left << "TOTAL" << " " << totalAssets << " unique assets\n";
     
     // Save map
     if (extractMap) {
@@ -712,8 +746,6 @@ int main(int argc, char* argv[]) {
     }
     
     // Download assets
-    bool anyDownload = extractDecals || extractAudio || extractAnimations || extractMeshes || extractSky;
-    
     if (anyDownload && totalAssets > 0) {
         std::cout << "\n[*] Downloading assets from Roblox CDN...\n";
         
@@ -788,8 +820,8 @@ int main(int argc, char* argv[]) {
         std::cout << "\n[*] No downloadable assets found in this game's instances.\n";
     }
     
-    // Save asset manifest (JSON-like text file)
-    if (totalAssets > 0) {
+    // Save asset manifest (only when assets were requested and found)
+    if (anyDownload && totalAssets > 0) {
         fs::path manifestPath = baseDir / "assets_manifest.txt";
         std::ofstream manifest(manifestPath);
         if (manifest) {
@@ -821,7 +853,7 @@ int main(int argc, char* argv[]) {
     std::cout << "\n========================================\n";
     std::cout << "[+] EXTRACTION COMPLETE!\n";
     std::cout << "[+] Time: " << std::fixed << std::setprecision(1) << totalSeconds << "s\n";
-    std::cout << "[+] Output: " << fs::absolute(baseDir).string() << "\n";
+    std::cout << "[+] Output: " << baseDir.string() << "\n";
     
     // List output contents
     std::cout << "[+] Contents:\n";
