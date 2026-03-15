@@ -580,30 +580,44 @@ public:
             // Read Primitive pointer for CFrame
             uintptr_t primitive = Read<uintptr_t>(address + RobloxOffsets::Primitive);
             if (primitive) {
-                // CFrame is stored on the primitive
-                // Read full 12-float CFrame (3x3 rotation + 3 position)
+                // CFrame is stored on the primitive in COLUMN-MAJOR format:
+                // Memory layout: [R00, R10, R20, X, R01, R11, R21, Y, R02, R12, R22, Z]
+                // (3 rotation column vectors interleaved with position components)
                 float cframe[12] = {0};
                 ReadMemory(primitive + RobloxOffsets::CFrame, cframe, sizeof(cframe));
                 
-                // Rotation matrix (first 9 floats)
-                for (int i = 0; i < 9; i++) inst.rotation[i] = cframe[i];
-                // Position (last 3 floats)
-                inst.position[0] = cframe[9];
-                inst.position[1] = cframe[10];
-                inst.position[2] = cframe[11];
-            } else {
-                // Fallback: try reading CFrame directly from instance
-                inst.position[0] = Read<float>(address + RobloxOffsets::CFrame + 0x24);
-                inst.position[1] = Read<float>(address + RobloxOffsets::CFrame + 0x28);
-                inst.position[2] = Read<float>(address + RobloxOffsets::CFrame + 0x2C);
+                // Extract position (interleaved at indices 3, 7, 11)
+                inst.position[0] = cframe[3];   // X
+                inst.position[1] = cframe[7];   // Y
+                inst.position[2] = cframe[11];  // Z
+                
+                // Extract rotation (column-major to row-major)
+                inst.rotation[0] = cframe[0];   // R00
+                inst.rotation[1] = cframe[4];   // R01
+                inst.rotation[2] = cframe[8];   // R02
+                inst.rotation[3] = cframe[1];   // R10
+                inst.rotation[4] = cframe[5];   // R11
+                inst.rotation[5] = cframe[9];   // R12
+                inst.rotation[6] = cframe[2];   // R20
+                inst.rotation[7] = cframe[6];   // R21
+                inst.rotation[8] = cframe[10];  // R22
             }
             
-            // Size
+            // Size (read directly from instance)
             inst.size[0] = Read<float>(address + RobloxOffsets::PartSize + 0x0);
             inst.size[1] = Read<float>(address + RobloxOffsets::PartSize + 0x4);
             inst.size[2] = Read<float>(address + RobloxOffsets::PartSize + 0x8);
             
+            // Validate size - if all zero or absurdly large, use defaults
+            if ((inst.size[0] <= 0.001f && inst.size[1] <= 0.001f && inst.size[2] <= 0.001f) ||
+                inst.size[0] > 100000.0f || inst.size[1] > 100000.0f || inst.size[2] > 100000.0f) {
+                inst.size[0] = 4.0f;
+                inst.size[1] = 1.2f;
+                inst.size[2] = 2.0f;
+            }
+            
             inst.transparency = Read<float>(address + RobloxOffsets::Transparency);
+            if (inst.transparency < 0.0f || inst.transparency > 1.0f) inst.transparency = 0.0f;
             
             uint8_t flags = Read<uint8_t>(address + RobloxOffsets::Anchored);
             inst.anchored = (flags & RobloxOffsets::AnchoredMask) != 0;
@@ -616,6 +630,10 @@ public:
                 inst.color[0] = Read<float>(address + RobloxOffsets::MeshPartColor3 + 0x0);
                 inst.color[1] = Read<float>(address + RobloxOffsets::MeshPartColor3 + 0x4);
                 inst.color[2] = Read<float>(address + RobloxOffsets::MeshPartColor3 + 0x8);
+                // Validate color range
+                for (int i = 0; i < 3; i++) {
+                    if (inst.color[i] < 0.0f || inst.color[i] > 1.0f) inst.color[i] = 0.63f;
+                }
             }
         }
         

@@ -144,7 +144,7 @@ bool DownloadAsset(const std::string& assetId, const fs::path& outputPath) {
 }
 
 // ============================================================
-// RBXLX Generation (improved)
+// RBXLX Generation - Workspace-only with visual filtering
 // ============================================================
 std::string GenerateRBXLX(const std::vector<MemoryInstance>& instances) {
     std::ostringstream xml;
@@ -154,7 +154,7 @@ std::string GenerateRBXLX(const std::vector<MemoryInstance>& instances) {
     xml << "  <External>null</External>\n";
     xml << "  <External>nil</External>\n";
     
-    // Build parent->children map
+    // Build lookup maps
     std::unordered_map<uintptr_t, std::vector<const MemoryInstance*>> childrenMap;
     std::unordered_map<uintptr_t, const MemoryInstance*> instanceMap;
     
@@ -163,15 +163,50 @@ std::string GenerateRBXLX(const std::vector<MemoryInstance>& instances) {
         childrenMap[inst.parent].push_back(&inst);
     }
     
-    // Set of part-like classes
+    // Find the Workspace instance
+    const MemoryInstance* workspace = nullptr;
+    for (const auto& inst : instances) {
+        if (inst.className == "Workspace") {
+            workspace = &inst;
+            break;
+        }
+    }
+    
+    if (!workspace) {
+        xml << "</roblox>\n";
+        return xml.str();
+    }
+    
+    // Classes to SKIP in the RBXLX (non-visual, cause clutter)
+    static const std::set<std::string> skipClasses = {
+        "ModuleScript", "LocalScript", "Script",
+        "RemoteEvent", "RemoteFunction", "BindableEvent", "BindableFunction",
+        "ImageLabel", "ImageButton", "TextLabel", "TextButton", "TextBox",
+        "Frame", "ScrollingFrame", "ViewportFrame",
+        "UIGradient", "UIStroke", "UICorner", "UIAspectRatioConstraint",
+        "UIListLayout", "UIGridLayout", "UITableLayout", "UIPadding", "UIScale", "UISizeConstraint",
+        "UITextSizeConstraint", "UIPageLayout",
+        "ScreenGui", "SurfaceGui", "BillboardGui", "PlayerGui",
+        "StatsItem", "NumberValue", "StringValue", "BoolValue", "IntValue",
+        "ObjectValue", "CFrameValue", "Color3Value", "Vector3Value",
+        "BrickColorValue", "RayValue",
+        "Configuration", "Camera"
+    };
+    
+    // Part-like classes that get CFrame/Size/Color properties
     static const std::set<std::string> partClasses = {
         "Part", "MeshPart", "WedgePart", "SpawnLocation", "TrussPart",
         "CornerWedgePart", "UnionOperation", "NegateOperation", "Seat", "VehicleSeat"
     };
     
-    // Recursive writer
+    // Recursive writer - only writes non-skipped classes
     int refCounter = 1;
+    int writtenParts = 0;
+    
     std::function<void(const MemoryInstance*, int)> writeInstance = [&](const MemoryInstance* inst, int indent) {
+        // Skip non-visual classes
+        if (skipClasses.count(inst->className)) return;
+        
         std::string tabs(indent * 2, ' ');
         std::string ref = "RBX" + std::to_string(refCounter++);
         
@@ -185,7 +220,9 @@ std::string GenerateRBXLX(const std::vector<MemoryInstance>& instances) {
         
         // Part-specific properties
         if (partClasses.count(inst->className)) {
-            // Full CFrame with rotation
+            writtenParts++;
+            
+            // CFrame
             xml << tabs << "    <CoordinateFrame name=\"CFrame\">\n";
             xml << tabs << "      <X>" << inst->position[0] << "</X>\n";
             xml << tabs << "      <Y>" << inst->position[1] << "</Y>\n";
@@ -223,7 +260,7 @@ std::string GenerateRBXLX(const std::vector<MemoryInstance>& instances) {
         
         xml << tabs << "  </Properties>\n";
         
-        // Write children
+        // Write children (only non-skipped ones)
         auto it = childrenMap.find(inst->address);
         if (it != childrenMap.end()) {
             for (const auto* child : it->second) {
@@ -234,12 +271,15 @@ std::string GenerateRBXLX(const std::vector<MemoryInstance>& instances) {
         xml << tabs << "</Item>\n";
     };
     
-    // Find root instances (those whose parent is not in our set)
-    for (const auto& inst : instances) {
-        if (instanceMap.find(inst.parent) == instanceMap.end()) {
-            writeInstance(&inst, 1);
+    // Write only Workspace children (not the Workspace itself, not other services)
+    auto wsChildren = childrenMap.find(workspace->address);
+    if (wsChildren != childrenMap.end()) {
+        for (const auto* child : wsChildren->second) {
+            writeInstance(child, 1);
         }
     }
+    
+    printf("[+] RBXLX: %d visual parts written (skipped scripts/UI)\n", writtenParts);
     
     xml << "</roblox>\n";
     return xml.str();
