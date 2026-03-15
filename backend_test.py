@@ -9,7 +9,7 @@ import time
 from datetime import datetime
 
 class ProtoonAPITester:
-    def __init__(self, base_url="https://9d767ae1-d298-4f91-b99d-9f4db166f473.preview.emergentagent.com"):
+    def __init__(self, base_url="https://asset-harvester-3.preview.emergentagent.com"):
         self.base_url = base_url
         self.api_base = f"{base_url}/api"
         self.tests_run = 0
@@ -96,7 +96,7 @@ class ProtoonAPITester:
         )
 
     def test_tools_endpoint(self):
-        """Test /api/tools endpoint"""
+        """Test /api/tools endpoint - should return Protoon v1.4.0"""
         def check_tools_response(data):
             if not isinstance(data, list):
                 return False
@@ -108,10 +108,19 @@ class ProtoonAPITester:
             tool_names = [tool.get('name') for tool in data]
             expected_tools = ['Protoon', 'Fleasion', 'USSI Script']
             
-            return all(tool in tool_names for tool in expected_tools)
+            # Check all expected tools are present
+            if not all(tool in tool_names for tool in expected_tools):
+                return False
+            
+            # Check Protoon version is 1.4.0
+            protoon_tool = next((tool for tool in data if tool.get('name') == 'Protoon'), None)
+            if not protoon_tool or protoon_tool.get('version') != '1.4.0':
+                return False
+            
+            return True
         
         return self.run_test(
-            "Tools endpoint",
+            "Tools endpoint - Protoon v1.4.0",
             "GET",
             "tools",
             expected_status=200,
@@ -195,20 +204,40 @@ class ProtoonAPITester:
         )
 
     def test_protoon_download_endpoint(self):
-        """Test /api/download/protoon endpoint"""
+        """Test /api/download/protoon endpoint - should return v1.4.0 with cookie.txt and .ROBLOSECURITY requirements"""
         def check_protoon_response(data):
-            return (
-                isinstance(data, dict) and
-                'message' in data and
-                'version' in data and
-                data['version'] == '1.1.0' and
-                'extraction_options' in data and
-                isinstance(data['extraction_options'], list) and
-                len(data['extraction_options']) > 0
-            )
+            if not isinstance(data, dict):
+                return False
+            
+            # Check version is 1.4.0
+            if data.get('version') != '1.4.0':
+                print(f"Expected version 1.4.0, got {data.get('version')}")
+                return False
+            
+            # Check download_url contains v1.4.0
+            download_url = data.get('download_url', '')
+            if 'v1.4.0' not in download_url:
+                print(f"Download URL should contain v1.4.0: {download_url}")
+                return False
+            
+            # Check installation steps include cookie.txt
+            installation = data.get('installation', [])
+            cookie_mentioned = any('cookie.txt' in str(step).lower() for step in installation)
+            if not cookie_mentioned:
+                print("Installation steps should mention cookie.txt")
+                return False
+            
+            # Check requirements include .ROBLOSECURITY
+            requirements = data.get('requirements', [])
+            roblosecurity_mentioned = any('.roblosecurity' in str(req).lower() for req in requirements)
+            if not roblosecurity_mentioned:
+                print("Requirements should mention .ROBLOSECURITY")
+                return False
+            
+            return True
         
         return self.run_test(
-            "Protoon download endpoint",
+            "Protoon download endpoint - v1.4.0 with auth requirements",
             "GET",
             "download/protoon",
             expected_status=200,

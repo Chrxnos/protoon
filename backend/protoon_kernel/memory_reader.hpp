@@ -5,11 +5,12 @@
  * This reads the DataModel from Roblox process memory
  * using kernel-level access beneath Hyperion
  * 
- * v1.1.0 - Enhanced with:
+ * v1.4.0 - Enhanced with:
  *   - Debug logging for troubleshooting
- *   - Multiple traversal methods for instance tree
+ *   - Multiple traversal methods for instance tree (Method B confirmed)
  *   - Asset reference reading (textures, sounds, animations, meshes)
  *   - Game info reading (PlaceId, GameId)
+ *   - Confirmed working: 75k+ instances extracted
  */
 
 #pragma once

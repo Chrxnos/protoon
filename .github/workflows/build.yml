@@ -61,7 +61,7 @@ jobs:
       run: |
         echo @echo off > release\install.bat
         echo echo ======================================== >> release\install.bat
-        echo echo    Protoon v1.1.0 Installer >> release\install.bat
+        echo echo    Protoon v1.4.0 Installer >> release\install.bat
         echo echo ======================================== >> release\install.bat
         echo net session ^>nul 2^>^&1 >> release\install.bat
         echo if %%errorLevel%% neq 0 ( >> release\install.bat
@@ -98,13 +98,13 @@ jobs:
     - name: Create ZIP Package
       shell: powershell
       run: |
-        Compress-Archive -Path "release\*" -DestinationPath "Protoon-v1.1.0-win64.zip"
+        Compress-Archive -Path "release\*" -DestinationPath "Protoon-v1.4.0-win64.zip"
     
     - name: Upload Release Package
       uses: actions/upload-artifact@v4
       with:
         name: protoon-release
-        path: Protoon-v1.1.0-win64.zip
+        path: Protoon-v1.4.0-win64.zip
 
   create-release:
     name: Create GitHub Release
@@ -123,19 +123,27 @@ jobs:
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
-        files: Protoon-v1.1.0-win64.zip
+        files: Protoon-v1.4.0-win64.zip
         body: |
-          ## Protoon v1.1.0 - Asset & Map Extraction
+          ## Protoon v1.4.0 - Authenticated CDN Downloads
           
-          Major update: Fleasion-style asset extraction + improved map saving.
+          Major update: Fixed path bugs, authenticated Roblox CDN downloads, retry logic.
           
-          ### New Features
-          - **Interactive extraction menu** - Choose what to extract (Fleasion-style options)
-          - **Asset downloading** - Downloads images, audio, animations, meshes from Roblox CDN
-          - **Organized Downloads folder** - `Downloads/Game_PlaceID/` with category subfolders
-          - **Debug mode** - Run with `--debug` for detailed diagnostic output
-          - **Better instance traversal** - Multiple methods to walk the game tree
-          - **Asset manifest** - Text file listing all discovered assets
+          ### What's New in v1.4.0
+          - **Fixed path duplication bug** — output no longer creates `Downloads/Game/Downloads/Game`
+          - **Authenticated CDN downloads** — supports `.ROBLOSECURITY` cookie (required since April 2025)
+          - **New OpenCloud API endpoint** — uses `apis.roblox.com/asset-delivery-api` + legacy fallback
+          - **Retry logic** — automatic retry on failed downloads with 500ms delay
+          - **CDN redirect handling** — follows JSON location responses to actual CDN URLs
+          - **Better file detection** — recognizes GIF, WebP, JSON formats
+          - **Progress tracking** — shows retry status during downloads
+          
+          ### Authentication for Downloads
+          Roblox now requires authentication for asset downloads. Two options:
+          1. **cookie.txt** — Place a file called `cookie.txt` next to `Protoon.exe` containing your `.ROBLOSECURITY` cookie
+          2. **Command line** — `Protoon.exe --cookie YOUR_COOKIE_HERE`
+          
+          Without auth, the tool still extracts the map and identifies assets, but downloads may fail.
           
           ### Extraction Options
           1. Map only (.rbxlx)
@@ -150,16 +158,18 @@ jobs:
           ### Quick Start
           1. Download and extract the ZIP
           2. Run `install.bat` as Administrator  
-          3. Join a Roblox game and wait for it to load
-          4. Run `C:\Protoon\Protoon.exe`
-          5. Choose extraction options
-          6. Check the `Downloads/` folder for output
+          3. (Optional) Create `cookie.txt` with your `.ROBLOSECURITY` value
+          4. Join a Roblox game and wait for it to load
+          5. Run `C:\Protoon\Protoon.exe`
+          6. Choose extraction options
+          7. Check the `Downloads/` folder for output
           
           ### Troubleshooting
           - Run with `--debug` flag for verbose output
           - Make sure you're **inside a game** (not the menu/lobby)
           - Wait for the game to **fully load** before running
           - Run as **Administrator**
+          - For download failures: add `cookie.txt` with your Roblox session cookie
           
           ### For Kernel Driver (Undetected Mode)
           Build `driver.c` with Visual Studio + WDK - see BUILD_DRIVER.md

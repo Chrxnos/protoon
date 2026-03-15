@@ -77,8 +77,8 @@ async def get_tools():
     return [
         ToolInfo(
             name="Protoon",
-            version="1.1.0",
-            description="Kernel-level Roblox asset & map extractor. Fleasion-style scrape options: extract decals, audio, animations, meshes, sky textures + full map saving. Downloads organized by game into categorized folders.",
+            version="1.4.0",
+            description="Kernel-level Roblox asset & map extractor with authenticated CDN downloads. Fleasion-style scrape options: decals, audio, animations, meshes, sky textures + full map saving. Downloads organized by game into categorized folders.",
             download_url="/api/download/protoon",
             size="~600 KB",
             platform="Windows x64 (Kernel Driver)"
@@ -263,10 +263,10 @@ async def download_protoon():
     """Get Protoon download info and links"""
     return JSONResponse(content={
         "message": "Protoon - Roblox Asset & Map Extraction Tool",
-        "version": "1.1.0",
-        "download_url": "https://github.com/Chrxnos/protoon/releases/latest/download/Protoon-v1.1.0-win64.zip",
+        "version": "1.4.0",
+        "download_url": "https://github.com/Chrxnos/protoon/releases/latest/download/Protoon-v1.4.0-win64.zip",
         "github_releases": "https://github.com/Chrxnos/protoon/releases",
-        "approach": "Kernel-level memory reading + Roblox CDN asset downloading",
+        "approach": "Kernel-level memory reading + authenticated Roblox CDN asset downloading",
         "package_contents": [
             "Protoon.exe - Asset & map extractor with interactive menu",
             "install.bat - One-click installer",
@@ -287,6 +287,7 @@ async def download_protoon():
         "installation": [
             "Download and extract the ZIP",
             "Right-click install.bat -> Run as Administrator",
+            "(Optional) Create cookie.txt with your .ROBLOSECURITY cookie for CDN downloads",
             "Join a Roblox game and wait for it to load",
             "Run C:\\Protoon\\Protoon.exe as Administrator",
             "Choose extraction options from the menu"
@@ -301,7 +302,8 @@ async def download_protoon():
         "requirements": [
             "Windows 10/11 x64",
             "Administrator privileges",
-            "Internet connection (for asset downloading)"
+            "Internet connection (for asset downloading)",
+            ".ROBLOSECURITY cookie (for authenticated CDN access)"
         ],
         "offsets_source": "https://github.com/NtReadVirtualMemory/Roblox-Offsets-Website",
         "current_roblox_version": "version-b130242ed064436f"

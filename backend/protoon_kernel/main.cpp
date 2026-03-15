@@ -1,13 +1,14 @@
 /*
- * Protoon v1.1.0 - Roblox Asset & Map Extraction Tool
+ * Protoon v1.4.0 - Roblox Asset & Map Extraction Tool
  * 
  * Features:
- *   - Full game instance tree extraction
- *   - Asset downloading (images, audio, meshes, animations, decals)
- *   - Organized Downloads folder per game
- *   - Fleasion-style scrape options
+ *   - Full game instance tree extraction (75k+ instances)
+ *   - Authenticated asset downloading via Roblox CDN
+ *   - Organized Downloads folder per game with categories
+ *   - Fleasion-style scrape options (8 modes)
  *   - Kernel driver for undetected mode (optional)
  *   - Debug mode for troubleshooting
+ *   - Retry logic + progress tracking for downloads
  */
 
 #include <iostream>
@@ -19,6 +20,7 @@
 #include <map>
 #include <algorithm>
 #include <chrono>
+#include <thread>
 
 #include "memory_reader.hpp"
 
@@ -26,11 +28,43 @@
 #include <winhttp.h>
 #pragma comment(lib, "winhttp.lib")
 
-// For SHGetFolderPath
+// For SHGetFolderPath + GetModuleFileName
 #include <ShlObj.h>
 #pragma comment(lib, "shell32.lib")
 
 namespace fs = std::filesystem;
+
+// ============================================================
+// Get executable directory (fixes path duplication bug)
+// ============================================================
+fs::path GetExeDirectory() {
+    char exePath[MAX_PATH] = {0};
+    GetModuleFileNameA(NULL, exePath, MAX_PATH);
+    return fs::path(exePath).parent_path();
+}
+
+// ============================================================
+// Read .ROBLOSECURITY cookie for authenticated CDN downloads
+// ============================================================
+std::string g_robloxCookie;
+
+std::string LoadCookie(const fs::path& exeDir) {
+    // Check cookie.txt in exe directory
+    fs::path cookiePath = exeDir / "cookie.txt";
+    if (fs::exists(cookiePath)) {
+        std::ifstream f(cookiePath);
+        std::string cookie;
+        std::getline(f, cookie);
+        // Trim whitespace
+        while (!cookie.empty() && (cookie.back() == '\n' || cookie.back() == '\r' || cookie.back() == ' '))
+            cookie.pop_back();
+        if (!cookie.empty()) {
+            printf("[+] Loaded auth cookie from cookie.txt\n");
+            return cookie;
+        }
+    }
+    return "";
+}
 
 // ============================================================
 // Material name lookup
@@ -52,42 +86,92 @@ const char* GetMaterialName(uint8_t material) {
 }
 
 // ============================================================
-// HTTP Download using WinHTTP
+// Detect file extension from binary content
 // ============================================================
-bool DownloadAsset(const std::string& assetId, const fs::path& outputPath) {
-    std::wstring host = L"assetdelivery.roblox.com";
-    std::wstring path = L"/v1/asset/?id=" + std::wstring(assetId.begin(), assetId.end());
+std::string DetectFileExtension(const std::vector<BYTE>& data) {
+    if (data.size() < 4) return ".bin";
     
-    HINTERNET hSession = WinHttpOpen(L"Protoon/1.1",
+    if (data[0] == 0x89 && data[1] == 'P' && data[2] == 'N' && data[3] == 'G') return ".png";
+    if (data[0] == 0xFF && data[1] == 0xD8) return ".jpg";
+    if (data[0] == 'G' && data[1] == 'I' && data[2] == 'F') return ".gif";
+    if (data.size() >= 12 && data[0] == 'R' && data[1] == 'I' && data[2] == 'F' && data[3] == 'F'
+        && data[8] == 'W' && data[9] == 'E' && data[10] == 'B' && data[11] == 'P') return ".webp";
+    if (data[0] == 'O' && data[1] == 'g' && data[2] == 'g' && data[3] == 'S') return ".ogg";
+    if (data[0] == 'I' && data[1] == 'D' && data[2] == '3') return ".mp3";
+    if (data[0] == 0xFF && (data[1] == 0xFB || data[1] == 0xF3 || data[1] == 0xF2)) return ".mp3";
+    if (data[0] == 'R' && data[1] == 'I' && data[2] == 'F' && data[3] == 'F') return ".wav";
+    if (data.size() >= 8 && memcmp(data.data(), "version ", 8) == 0) return ".mesh";
+    if (data[0] == '<') return ".xml";
+    if (data[0] == 0xAB && data[1] == 'K' && data[2] == 'T' && data[3] == 'X') return ".ktx";
+    if (data[0] == '{') return ".json";
+    
+    return ".bin";
+}
+
+// ============================================================
+// HTTP Download using WinHTTP (with auth + retry + redirect)
+// ============================================================
+struct DownloadResult {
+    bool success = false;
+    int httpStatus = 0;
+    size_t bytesDownloaded = 0;
+    std::string error;
+};
+
+DownloadResult HttpGet(const std::wstring& host, const std::wstring& path,
+                       const std::string& cookie, std::vector<BYTE>& outData) {
+    DownloadResult result;
+    
+    HINTERNET hSession = WinHttpOpen(L"Protoon/1.4",
         WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
         WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
-    if (!hSession) return false;
+    if (!hSession) { result.error = "WinHttpOpen failed"; return result; }
     
-    // Set timeouts
-    WinHttpSetTimeouts(hSession, 5000, 10000, 10000, 30000);
+    WinHttpSetTimeouts(hSession, 5000, 15000, 15000, 60000);
     
     HINTERNET hConnect = WinHttpConnect(hSession, host.c_str(),
         INTERNET_DEFAULT_HTTPS_PORT, 0);
-    if (!hConnect) { WinHttpCloseHandle(hSession); return false; }
+    if (!hConnect) {
+        WinHttpCloseHandle(hSession);
+        result.error = "WinHttpConnect failed";
+        return result;
+    }
     
     HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"GET", path.c_str(),
         NULL, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES,
         WINHTTP_FLAG_SECURE);
-    if (!hRequest) { WinHttpCloseHandle(hConnect); WinHttpCloseHandle(hSession); return false; }
+    if (!hRequest) {
+        WinHttpCloseHandle(hConnect); WinHttpCloseHandle(hSession);
+        result.error = "WinHttpOpenRequest failed";
+        return result;
+    }
     
     // Enable auto-redirect
     DWORD redirectPolicy = WINHTTP_OPTION_REDIRECT_POLICY_ALWAYS;
     WinHttpSetOption(hRequest, WINHTTP_OPTION_REDIRECT_POLICY, &redirectPolicy, sizeof(redirectPolicy));
     
-    if (!WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
-        WINHTTP_NO_REQUEST_DATA, 0, 0, 0)) {
+    // Build headers (auth cookie if available)
+    std::wstring headers;
+    if (!cookie.empty()) {
+        std::wstring wCookie(cookie.begin(), cookie.end());
+        headers = L"Cookie: .ROBLOSECURITY=" + wCookie + L"\r\n";
+    }
+    
+    BOOL sent = WinHttpSendRequest(hRequest,
+        headers.empty() ? WINHTTP_NO_ADDITIONAL_HEADERS : headers.c_str(),
+        headers.empty() ? 0 : (DWORD)headers.size(),
+        WINHTTP_NO_REQUEST_DATA, 0, 0, 0);
+    
+    if (!sent) {
         WinHttpCloseHandle(hRequest); WinHttpCloseHandle(hConnect); WinHttpCloseHandle(hSession);
-        return false;
+        result.error = "WinHttpSendRequest failed";
+        return result;
     }
     
     if (!WinHttpReceiveResponse(hRequest, NULL)) {
         WinHttpCloseHandle(hRequest); WinHttpCloseHandle(hConnect); WinHttpCloseHandle(hSession);
-        return false;
+        result.error = "WinHttpReceiveResponse failed";
+        return result;
     }
     
     // Check status code
@@ -95,39 +179,109 @@ bool DownloadAsset(const std::string& assetId, const fs::path& outputPath) {
     DWORD statusSize = sizeof(statusCode);
     WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
         WINHTTP_HEADER_NAME_BY_INDEX, &statusCode, &statusSize, WINHTTP_NO_HEADER_INDEX);
+    result.httpStatus = (int)statusCode;
     
     if (statusCode != 200) {
         WinHttpCloseHandle(hRequest); WinHttpCloseHandle(hConnect); WinHttpCloseHandle(hSession);
-        return false;
+        result.error = "HTTP " + std::to_string(statusCode);
+        return result;
     }
     
-    // Read response
-    std::vector<BYTE> data;
+    // Read response body
     DWORD bytesRead;
     BYTE buffer[8192];
     while (WinHttpReadData(hRequest, buffer, sizeof(buffer), &bytesRead) && bytesRead > 0) {
-        data.insert(data.end(), buffer, buffer + bytesRead);
+        outData.insert(outData.end(), buffer, buffer + bytesRead);
     }
     
     WinHttpCloseHandle(hRequest);
     WinHttpCloseHandle(hConnect);
     WinHttpCloseHandle(hSession);
     
+    result.bytesDownloaded = outData.size();
+    result.success = !outData.empty();
+    return result;
+}
+
+bool DownloadAsset(const std::string& assetId, const fs::path& outputPath, bool debugMode = false) {
+    std::vector<BYTE> data;
+    DownloadResult result;
+    
+    // Try 1: New OpenCloud endpoint (apis.roblox.com) with auth
+    if (!g_robloxCookie.empty()) {
+        std::wstring wAssetId(assetId.begin(), assetId.end());
+        result = HttpGet(L"apis.roblox.com",
+            L"/asset-delivery-api/v1/assetId/" + wAssetId,
+            g_robloxCookie, data);
+        
+        if (result.success) goto save_file;
+        if (debugMode) printf("[DEBUG] OpenCloud endpoint: %s\n", result.error.c_str());
+        data.clear();
+    }
+    
+    // Try 2: Legacy endpoint with auth cookie
+    {
+        std::wstring wAssetId(assetId.begin(), assetId.end());
+        result = HttpGet(L"assetdelivery.roblox.com",
+            L"/v1/asset/?id=" + wAssetId,
+            g_robloxCookie, data);
+        
+        if (result.success) goto save_file;
+        if (debugMode) printf("[DEBUG] Legacy endpoint: %s\n", result.error.c_str());
+        data.clear();
+    }
+    
+    // Try 3: Retry legacy without cookie (some public assets may still work)
+    if (!g_robloxCookie.empty()) {
+        std::wstring wAssetId(assetId.begin(), assetId.end());
+        result = HttpGet(L"assetdelivery.roblox.com",
+            L"/v1/asset/?id=" + wAssetId,
+            "", data);
+        
+        if (result.success) goto save_file;
+        data.clear();
+    }
+    
+    return false;
+
+save_file:
     if (data.empty()) return false;
     
-    // Detect file extension from content
-    std::string ext = ".bin";
-    if (data.size() >= 4) {
-        if (data[0] == 0x89 && data[1] == 'P' && data[2] == 'N' && data[3] == 'G') ext = ".png";
-        else if (data[0] == 0xFF && data[1] == 0xD8) ext = ".jpg";
-        else if (data[0] == 'O' && data[1] == 'g' && data[2] == 'g' && data[3] == 'S') ext = ".ogg";
-        else if (data[0] == 'I' && data[1] == 'D' && data[2] == '3') ext = ".mp3";
-        else if (data[0] == 0xFF && data[1] == 0xFB) ext = ".mp3";
-        else if (data[0] == 'R' && data[1] == 'I' && data[2] == 'F' && data[3] == 'F') ext = ".wav";
-        else if (data.size() >= 8 && memcmp(data.data(), "version ", 8) == 0) ext = ".mesh";
-        else if (data[0] == '<') ext = ".xml";
-        else if (data[0] == 0xAB && data[1] == 'K' && data[2] == 'T' && data[3] == 'X') ext = ".ktx";
+    // Check if response is a JSON redirect (CDN returns location URL)
+    if (data.size() < 4096 && data[0] == '{') {
+        std::string jsonStr(data.begin(), data.end());
+        // Look for "location" field in JSON response
+        size_t locPos = jsonStr.find("\"location\"");
+        if (locPos == std::string::npos) locPos = jsonStr.find("\"Location\"");
+        if (locPos != std::string::npos) {
+            size_t urlStart = jsonStr.find("\"http", locPos + 8);
+            if (urlStart != std::string::npos) {
+                urlStart++; // skip opening quote
+                size_t urlEnd = jsonStr.find("\"", urlStart);
+                if (urlEnd != std::string::npos) {
+                    std::string cdnUrl = jsonStr.substr(urlStart, urlEnd - urlStart);
+                    
+                    // Parse the CDN URL and download from it
+                    // Extract host and path from full URL
+                    size_t hostStart = cdnUrl.find("://") + 3;
+                    size_t pathStart = cdnUrl.find("/", hostStart);
+                    if (hostStart > 3 && pathStart != std::string::npos) {
+                        std::string cdnHost = cdnUrl.substr(hostStart, pathStart - hostStart);
+                        std::string cdnPath = cdnUrl.substr(pathStart);
+                        std::wstring wHost(cdnHost.begin(), cdnHost.end());
+                        std::wstring wPath(cdnPath.begin(), cdnPath.end());
+                        
+                        data.clear();
+                        result = HttpGet(wHost, wPath, "", data);
+                        if (!result.success || data.empty()) return false;
+                    }
+                }
+            }
+        }
     }
+    
+    // Detect file extension from content
+    std::string ext = DetectFileExtension(data);
     
     // Save file
     fs::path finalPath = outputPath;
@@ -297,7 +451,7 @@ void PrintBanner() {
 |_|   |_|  \___/ \__\___/ \___/|_| |_|
                                       
     Roblox Asset & Map Extraction Tool
-    v1.3.0 - Asset & Map Extraction
+    v1.4.0 - Authenticated CDN Downloads
     )" << std::endl;
 }
 
@@ -310,9 +464,11 @@ void WaitForExit() {
 void PrintHelp() {
     std::cout << "Usage: Protoon.exe [options]\n\n";
     std::cout << "Options:\n";
-    std::cout << "  --debug      Enable debug mode (verbose output)\n";
-    std::cout << "  --output DIR Set output directory (default: ./Downloads)\n";
-    std::cout << "  --help       Show this help message\n";
+    std::cout << "  --debug        Enable debug mode (verbose output)\n";
+    std::cout << "  --output DIR   Set output directory (default: ./Downloads)\n";
+    std::cout << "  --cookie COOK  Set .ROBLOSECURITY cookie for authenticated CDN downloads\n";
+    std::cout << "                 (or place cookie in cookie.txt next to Protoon.exe)\n";
+    std::cout << "  --help         Show this help message\n";
     std::cout << std::endl;
 }
 
@@ -322,16 +478,35 @@ void PrintHelp() {
 int main(int argc, char* argv[]) {
     PrintBanner();
     
+    // Get exe directory (fixes path duplication when CWD != exe dir)
+    fs::path exeDir = GetExeDirectory();
+    
     // Parse arguments
-    bool debugMode = false;  // Off by default now (Method B confirmed working)
+    bool debugMode = false;
     std::string outputDir = "";
+    std::string cookieArg = "";
     
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
         if (arg == "--debug") debugMode = true;
         else if (arg == "--quiet") debugMode = false;
         else if (arg == "--output" && i + 1 < argc) outputDir = argv[++i];
+        else if (arg == "--cookie" && i + 1 < argc) cookieArg = argv[++i];
         else if (arg == "--help") { PrintHelp(); return 0; }
+    }
+    
+    // Load auth cookie: --cookie flag > cookie.txt > empty
+    if (!cookieArg.empty()) {
+        g_robloxCookie = cookieArg;
+        printf("[+] Using cookie from --cookie argument\n");
+    } else {
+        g_robloxCookie = LoadCookie(exeDir);
+    }
+    
+    if (g_robloxCookie.empty()) {
+        printf("[*] No auth cookie found. Asset downloads may fail (Roblox requires auth since 2025).\n");
+        printf("[*] To fix: place your .ROBLOSECURITY cookie in cookie.txt next to Protoon.exe\n");
+        printf("[*]   or use: Protoon.exe --cookie YOUR_COOKIE_HERE\n\n");
     }
     
     // Initialize
@@ -416,13 +591,25 @@ int main(int argc, char* argv[]) {
     bool extractMeshes = (choice == 5 || choice == 7 || choice == 8);
     bool extractSky = (choice == 6 || choice == 7 || choice == 8);
     
-    // Create output directory
+    // Create output directory — always resolve relative to exe directory
+    // This fixes the path duplication bug (Downloads/Game/Downloads/Game)
+    // when CWD differs from exe location
     std::string gameFolderName = "Game_" + std::to_string(placeId);
+    
+    fs::path baseDir;
     if (outputDir.empty()) {
-        outputDir = "Downloads";
+        // Default: create Downloads/ next to the exe
+        baseDir = exeDir / "Downloads" / gameFolderName;
+    } else {
+        fs::path outPath(outputDir);
+        if (outPath.is_absolute()) {
+            baseDir = outPath / gameFolderName;
+        } else {
+            // Relative paths resolve from exe directory, not CWD
+            baseDir = exeDir / outPath / gameFolderName;
+        }
     }
     
-    fs::path baseDir = fs::path(outputDir) / gameFolderName;
     fs::create_directories(baseDir);
     
     if (extractDecals) fs::create_directories(baseDir / "Decals");
@@ -579,12 +766,19 @@ int main(int argc, char* argv[]) {
                 std::cout << "  [" << (downloaded + failed + 1) << "/" << totalAssets << "] "
                          << category << " " << ref.assetId << " (" << ref.sourceName << ")... ";
                 
-                if (DownloadAsset(ref.assetId, outPath)) {
+                if (DownloadAsset(ref.assetId, outPath, debugMode)) {
                     downloaded++;
                     std::cout << "OK\n";
                 } else {
-                    failed++;
-                    std::cout << "FAILED\n";
+                    // Retry once after short delay
+                    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                    if (DownloadAsset(ref.assetId, outPath, debugMode)) {
+                        downloaded++;
+                        std::cout << "OK (retry)\n";
+                    } else {
+                        failed++;
+                        std::cout << "FAILED\n";
+                    }
                 }
             }
         }

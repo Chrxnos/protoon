@@ -48,7 +48,7 @@ const DownloadModal = ({ isOpen, onClose, downloadInfo }) => {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" onClick={e => e.stopPropagation()} data-testid="download-modal">
         <button className="modal-close" onClick={onClose}><X size={24} /></button>
-        <h2>Download Protoon v1.1.0</h2>
+        <h2>Download Protoon v1.4.0</h2>
         <p className="modal-subtitle">Roblox Asset & Map Extraction Suite</p>
         
         {downloadInfo.extraction_options && (
@@ -103,7 +103,8 @@ const DownloadModal = ({ isOpen, onClose, downloadInfo }) => {
         </div>
         
         <p className="modal-note">
-          Requires Windows 10/11 x64 with Administrator privileges + Internet for asset downloads
+          Requires Windows 10/11 x64 with Administrator privileges + Internet for asset downloads.
+          For CDN downloads, create a cookie.txt with your .ROBLOSECURITY cookie.
         </p>
       </div>
     </div>
@@ -237,10 +238,10 @@ function App() {
       setTools([
         {
           name: "Protoon",
-          version: "1.0.0",
-          description: "Kernel-level Roblox map extractor. Reads game memory beneath Hyperion anti-cheat using kernel driver. Extracts DataModel instances and exports to .rbxlx for Roblox Studio.",
+          version: "1.4.0",
+          description: "Kernel-level Roblox map extractor with authenticated CDN downloads. Reads game memory beneath Hyperion anti-cheat. Extracts DataModel instances and exports to .rbxlx for Roblox Studio.",
           download_url: "/api/download/protoon",
-          size: "~500 KB",
+          size: "~600 KB",
           platform: "Windows x64 (Kernel)"
         },
         {
@@ -316,7 +317,7 @@ synsaveinstance(Options)`;
               Download
             </button>
             <a 
-              href="https://github.com/qrhrqiohj/Fleasion" 
+              href="https://github.com/Chrxnos/protoon" 
               target="_blank" 
               rel="noopener noreferrer"
               className="secondary-btn"

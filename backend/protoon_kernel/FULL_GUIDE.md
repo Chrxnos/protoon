@@ -1,4 +1,4 @@
-# Protoon - Complete Build & Usage Guide
+# Protoon v1.4.0 - Complete Build & Usage Guide
 
 ## Prerequisites (One-Time Setup)
 
@@ -238,17 +238,44 @@ bcdedit /set testsigning off
 
 | Property | Extracted |
 |----------|-----------|
-| Part Position (X,Y,Z) | ✅ |
-| Part Size | ✅ |
-| Part Anchored | ✅ |
-| Part CanCollide | ✅ |
-| Part Transparency | ✅ |
-| Part Material | ✅ |
-| Models & Hierarchy | ✅ |
-| Instance Names | ✅ |
-| Scripts | ❌ (bytecode only) |
-| Textures/Decals | ❌ (use Fleasion) |
-| Sounds | ❌ (use Fleasion) |
+| Part Position (X,Y,Z) | Yes |
+| Part Rotation (CFrame) | Yes |
+| Part Size | Yes |
+| Part Anchored | Yes |
+| Part CanCollide | Yes |
+| Part Transparency | Yes |
+| Part Material | Yes |
+| Part Color (MeshPart) | Yes |
+| Models & Hierarchy | Yes |
+| Instance Names | Yes |
+| Decals / Images | Yes (downloaded from CDN) |
+| Audio / Sounds | Yes (downloaded from CDN) |
+| Animations | Yes (downloaded from CDN) |
+| Meshes | Yes (downloaded from CDN) |
+| Sky Textures | Yes (downloaded from CDN) |
+| Scripts | No (bytecode only) |
+
+**Note:** CDN downloads require authentication. See "Authentication" section below.
+
+---
+
+## Authentication for Asset Downloads
+
+Since April 2025, Roblox requires authentication for asset downloads. Two options:
+
+### Option 1: cookie.txt (Recommended)
+1. Log into Roblox in your browser
+2. Open browser DevTools (F12) → Application → Cookies
+3. Find `.ROBLOSECURITY` cookie and copy its value
+4. Create a file called `cookie.txt` next to `Protoon.exe`
+5. Paste the cookie value into it (just the value, no quotes)
+
+### Option 2: Command-line flag
+```powershell
+.\Protoon.exe --cookie YOUR_ROBLOSECURITY_COOKIE_VALUE_HERE
+```
+
+Without authentication, map extraction and instance tree still work perfectly — only CDN asset downloads will fail.
 
 ---
 
@@ -261,8 +288,10 @@ sc create ProtoonDrv type= kernel binpath= "C:\Protoon\ProtoonDriver.sys"
 sc start ProtoonDrv                   # Start driver
 
 # === USAGE ===
-.\Protoon.exe                         # Extract to extracted_map.rbxlx
-.\Protoon.exe output.rbxlx            # Extract to custom filename
+.\Protoon.exe                         # Interactive menu (8 options)
+.\Protoon.exe --debug                 # With verbose diagnostics
+.\Protoon.exe --output D:\MyExports   # Custom output directory
+.\Protoon.exe --cookie COOKIE_VALUE   # With auth for downloads
 
 # === CLEANUP ===
 sc stop ProtoonDrv                    # Stop driver
